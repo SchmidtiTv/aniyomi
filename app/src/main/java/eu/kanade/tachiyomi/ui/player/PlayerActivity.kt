@@ -39,6 +39,7 @@ import android.media.session.PlaybackState
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.util.Rational
 import android.view.KeyEvent
 import android.view.View
@@ -254,6 +255,9 @@ class PlayerActivity : BaseActivity() {
                 }
             }
             .launchIn(lifecycleScope)
+
+        Log.d("PlayerActivity", "onCreate - ${viewModel.currentAnime.value}")
+
 
         binding.controls.setContent {
             TachiyomiTheme {

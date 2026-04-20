@@ -197,27 +197,27 @@ fun PlayerControls(
                 AnimatedVisibility(
                     isBrightnessSliderShown,
                     enter =
-                    if (!reduceMotion) {
-                        slideInHorizontally(playerControlsEnterAnimationSpec()) {
-                            if (swapVolumeAndBrightness) -it else it
-                        } +
-                            fadeIn(
-                                playerControlsEnterAnimationSpec(),
-                            )
-                    } else {
-                        fadeIn(playerControlsEnterAnimationSpec())
-                    },
+                        if (!reduceMotion) {
+                            slideInHorizontally(playerControlsEnterAnimationSpec()) {
+                                if (swapVolumeAndBrightness) -it else it
+                            } +
+                                fadeIn(
+                                    playerControlsEnterAnimationSpec(),
+                                )
+                        } else {
+                            fadeIn(playerControlsEnterAnimationSpec())
+                        },
                     exit =
-                    if (!reduceMotion) {
-                        slideOutHorizontally(playerControlsExitAnimationSpec()) {
-                            if (swapVolumeAndBrightness) -it else it
-                        } +
-                            fadeOut(
-                                playerControlsExitAnimationSpec(),
-                            )
-                    } else {
-                        fadeOut(playerControlsExitAnimationSpec())
-                    },
+                        if (!reduceMotion) {
+                            slideOutHorizontally(playerControlsExitAnimationSpec()) {
+                                if (swapVolumeAndBrightness) -it else it
+                            } +
+                                fadeOut(
+                                    playerControlsExitAnimationSpec(),
+                                )
+                        } else {
+                            fadeOut(playerControlsExitAnimationSpec())
+                        },
                     modifier = Modifier.constrainAs(brightnessSlider) {
                         if (swapVolumeAndBrightness) {
                             start.linkTo(parent.start, spacing.medium)
@@ -238,27 +238,27 @@ fun PlayerControls(
                 AnimatedVisibility(
                     isVolumeSliderShown,
                     enter =
-                    if (!reduceMotion) {
-                        slideInHorizontally(playerControlsEnterAnimationSpec()) {
-                            if (swapVolumeAndBrightness) it else -it
-                        } +
-                            fadeIn(
-                                playerControlsEnterAnimationSpec(),
-                            )
-                    } else {
-                        fadeIn(playerControlsEnterAnimationSpec())
-                    },
+                        if (!reduceMotion) {
+                            slideInHorizontally(playerControlsEnterAnimationSpec()) {
+                                if (swapVolumeAndBrightness) it else -it
+                            } +
+                                fadeIn(
+                                    playerControlsEnterAnimationSpec(),
+                                )
+                        } else {
+                            fadeIn(playerControlsEnterAnimationSpec())
+                        },
                     exit =
-                    if (!reduceMotion) {
-                        slideOutHorizontally(playerControlsExitAnimationSpec()) {
-                            if (swapVolumeAndBrightness) it else -it
-                        } +
-                            fadeOut(
-                                playerControlsExitAnimationSpec(),
-                            )
-                    } else {
-                        fadeOut(playerControlsExitAnimationSpec())
-                    },
+                        if (!reduceMotion) {
+                            slideOutHorizontally(playerControlsExitAnimationSpec()) {
+                                if (swapVolumeAndBrightness) it else -it
+                            } +
+                                fadeOut(
+                                    playerControlsExitAnimationSpec(),
+                                )
+                        } else {
+                            fadeOut(playerControlsExitAnimationSpec())
+                        },
                     modifier = Modifier.constrainAs(volumeSlider) {
                         if (swapVolumeAndBrightness) {
                             end.linkTo(parent.end, spacing.medium)
@@ -304,9 +304,11 @@ fun PlayerControls(
                         is PlayerUpdates.ShowText -> TextPlayerUpdate(
                             (currentPlayerUpdate as PlayerUpdates.ShowText).value,
                         )
+
                         is PlayerUpdates.ShowTextResource -> TextPlayerUpdate(
                             stringResource((currentPlayerUpdate as PlayerUpdates.ShowTextResource).textResource),
                         )
+
                         else -> {}
                     }
                 }
@@ -327,9 +329,9 @@ fun PlayerControls(
                 }
                 AnimatedVisibility(
                     visible =
-                    (controlsShown && !areControlsLocked || gestureSeekAmount != null) ||
-                        isLoading ||
-                        isLoadingEpisode,
+                        (controlsShown && !areControlsLocked || gestureSeekAmount != null) ||
+                            isLoading ||
+                            isLoadingEpisode,
                     enter = fadeIn(playerControlsEnterAnimationSpec()),
                     exit = fadeOut(playerControlsExitAnimationSpec()),
                     modifier = Modifier.constrainAs(centerControls) {
@@ -451,6 +453,7 @@ fun PlayerControls(
                         onToggleAutoPlay = { viewModel.setAutoPlay(it) },
                         onSubtitlesClick = { viewModel.showSheet(Sheets.SubtitleTracks) },
                         onSubtitlesLongClick = { viewModel.showPanel(Panels.SubtitleSettings) },
+                        onCastClick = { viewModel.showSheet(Sheets.CastSelection) },
                         onAudioClick = { viewModel.showSheet(Sheets.AudioTracks) },
                         onAudioLongClick = { viewModel.showPanel(Panels.AudioDelay) },
                         onQualityClick = { viewModel.showSheet(Sheets.QualityTracks) },
@@ -559,8 +562,14 @@ fun PlayerControls(
         val showFailedHosters by playerPreferences.showFailedHosters().collectAsState()
         val emptyHosters by playerPreferences.showEmptyHosters().collectAsState()
 
+        val selectedCast by viewModel.selectedCast.collectAsState()
+
         PlayerSheets(
             sheetShown = sheetShown,
+
+            selectedCast = selectedCast,
+            onSelectCast = viewModel::updateCast,
+
             subtitles = subtitles.toImmutableList(),
             selectedSubtitles = selectedSubtitles.toList().toImmutableList(),
             onAddSubtitle = viewModel::addSubtitle,

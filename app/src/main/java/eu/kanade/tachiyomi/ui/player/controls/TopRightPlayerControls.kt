@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Audiotrack
 import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -40,6 +41,9 @@ fun TopRightPlayerControls(
     // auto-play
     autoPlayEnabled: Boolean,
     onToggleAutoPlay: (Boolean) -> Unit,
+
+    // cast
+    onCastClick: () -> Unit,
 
     // subtitles
     onSubtitlesClick: () -> Unit,
@@ -70,6 +74,11 @@ fun TopRightPlayerControls(
             modifier = Modifier
                 .padding(vertical = MaterialTheme.padding.medium, horizontal = MaterialTheme.padding.mediumSmall)
                 .size(width = 48.dp, height = 24.dp),
+        )
+        ControlsButton(
+            icon = Icons.Default.Tv,
+            onClick = onCastClick,
+            horizontalSpacing = MaterialTheme.padding.mediumSmall,
         )
         ControlsButton(
             icon = Icons.Default.Subtitles,

@@ -25,9 +25,11 @@ import dev.vivvvek.seeker.Segment
 import eu.kanade.tachiyomi.ui.player.ArtType
 import eu.kanade.tachiyomi.ui.player.Decoder
 import eu.kanade.tachiyomi.ui.player.Panels
+import eu.kanade.tachiyomi.ui.player.PlayerViewModel
 import eu.kanade.tachiyomi.ui.player.PlayerViewModel.VideoTrack
 import eu.kanade.tachiyomi.ui.player.Sheets
 import eu.kanade.tachiyomi.ui.player.controls.components.sheets.AudioTracksSheet
+import eu.kanade.tachiyomi.ui.player.controls.components.sheets.CastSheet
 import eu.kanade.tachiyomi.ui.player.controls.components.sheets.ChaptersSheet
 import eu.kanade.tachiyomi.ui.player.controls.components.sheets.HosterState
 import eu.kanade.tachiyomi.ui.player.controls.components.sheets.MoreSheet
@@ -49,6 +51,10 @@ fun PlayerSheets(
     selectedSubtitles: ImmutableList<Int>,
     onAddSubtitle: (Uri) -> Unit,
     onSelectSubtitle: (Int) -> Unit,
+
+    // cast sheet
+    selectedCast: String,
+    onSelectCast: (String) -> Unit,
 
     // audio sheet
     audioTracks: ImmutableList<VideoTrack>,
@@ -88,7 +94,7 @@ fun PlayerSheets(
     showSubtitles: Boolean,
     onToggleShowSubtitles: (Boolean) -> Unit,
     cachePath: String,
-    onSetAsArt: (ArtType, (() -> InputStream)) -> Unit,
+    onSetAsArt: (ArtType, () -> InputStream) -> Unit,
     onShare: (() -> InputStream) -> Unit,
     onSave: (() -> InputStream) -> Unit,
     takeScreenshot: (String, Boolean) -> InputStream?,
@@ -114,6 +120,13 @@ fun PlayerSheets(
                 onAddSubtitle = { subtitlesPicker.launch(arrayOf("*/*")) },
                 onOpenSubtitleSettings = { onOpenPanel(Panels.SubtitleSettings) },
                 onOpenSubtitleDelay = { onOpenPanel(Panels.SubtitleDelay) },
+                onDismissRequest = onDismissRequest,
+            )
+        }
+        Sheets.CastSelection -> {
+            CastSheet (
+                selectedId = selectedCast,
+                onSelect = onSelectCast,
                 onDismissRequest = onDismissRequest,
             )
         }

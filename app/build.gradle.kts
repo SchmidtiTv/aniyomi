@@ -245,6 +245,9 @@ dependencies {
     implementation(libs.okio)
     implementation(libs.conscrypt.android) // TLS 1.3 support for Android < 10
 
+    // Ktor - Casting
+    implementation(libs.bundles.ktor)
+
     // Data serialization (JSON, protobuf, xml)
     implementation(kotlinx.bundles.serialization)
 

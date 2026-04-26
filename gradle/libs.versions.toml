@@ -102,8 +102,16 @@ play-services-cast = { group = "com.google.android.gms", name = "play-services-c
 play-services-cast-framework = { group = "com.google.android.gms", name = "play-services-cast-framework", version.ref = "play-services-cast-version" }
 
 # For the casting Proxy Server
+# Ktor Server (The "Answering" side for the Chromecast)
 ktor-server-core = { module = "io.ktor:ktor-server-core", version.ref = "ktor" }
-ktor-server-cio = { module = "io.ktor:ktor-server-cio", version.ref = "ktor" }
+ktor-server-netty = { module = "io.ktor:ktor-server-netty", version.ref = "ktor" }
+
+# Ktor Client (The "Requesting" side for fetching the video)
+ktor-client-core = { module = "io.ktor:ktor-client-core", version.ref = "ktor" }
+ktor-client-okhttp = { module = "io.ktor:ktor-client-okhttp", version.ref = "ktor" }
+
+ktor-client-logging = { module = "io.ktor:ktor-client-logging", version.ref = "ktor" }
+ktor-server-call-logging = { module = "io.ktor:ktor-server-call-logging", version.ref = "ktor" } # <- Debugging
 
 [plugins]
 aboutLibraries = { id = "com.mikepenz.aboutlibraries.plugin", version.ref = "aboutlib_version" }
@@ -120,3 +128,11 @@ sqldelight = ["sqldelight-android-driver", "sqldelight-coroutines", "sqldelight-
 voyager = ["voyager-navigator", "voyager-screenmodel", "voyager-tab-navigator", "voyager-transitions"]
 richtext = ["richtext-commonmark", "richtext-m3"]
 test = ["junit", "kotest-assertions", "mockk"]
+ktor = [
+  "ktor-server-core",
+  "ktor-server-call-logging",
+  "ktor-server-netty",
+  "ktor-client-core",
+  "ktor-client-logging",
+  "ktor-client-okhttp"
+]

@@ -562,13 +562,9 @@ fun PlayerControls(
         val showFailedHosters by playerPreferences.showFailedHosters().collectAsState()
         val emptyHosters by playerPreferences.showEmptyHosters().collectAsState()
 
-        val selectedCast by viewModel.selectedCast.collectAsState()
 
         PlayerSheets(
             sheetShown = sheetShown,
-
-            selectedCast = selectedCast,
-            onSelectCast = viewModel::updateCast,
 
             subtitles = subtitles.toImmutableList(),
             selectedSubtitles = selectedSubtitles.toList().toImmutableList(),

@@ -209,8 +209,6 @@ class PlayerViewModel @JvmOverloads constructor(
     private val _selectedSubtitles = MutableStateFlow(Pair(-1, -1))
     val selectedSubtitles = _selectedSubtitles.asStateFlow()
 
-    private val _selectedCast = MutableStateFlow("")
-    val selectedCast = _selectedCast.asStateFlow()
 
     private val _audioTracks = MutableStateFlow<List<VideoTrack>>(emptyList())
     val audioTracks = _audioTracks.asStateFlow()
@@ -509,9 +507,6 @@ class PlayerViewModel @JvmOverloads constructor(
         _selectedAudio.update { id }
     }
 
-    fun updateCast(id: String) {
-        _selectedCast.update { id }
-    }
 
     fun addSubtitle(uri: Uri) {
         val url = uri.toString()

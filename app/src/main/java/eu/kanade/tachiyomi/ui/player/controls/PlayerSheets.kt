@@ -52,9 +52,6 @@ fun PlayerSheets(
     onAddSubtitle: (Uri) -> Unit,
     onSelectSubtitle: (Int) -> Unit,
 
-    // cast sheet
-    selectedCast: String,
-    onSelectCast: (String) -> Unit,
 
     // audio sheet
     audioTracks: ImmutableList<VideoTrack>,
@@ -125,8 +122,6 @@ fun PlayerSheets(
         }
         Sheets.CastSelection -> {
             CastSheet (
-                selectedId = selectedCast,
-                onSelect = onSelectCast,
                 onDismissRequest = onDismissRequest,
             )
         }

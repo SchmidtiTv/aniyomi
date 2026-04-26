@@ -25,55 +25,50 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.mediarouter.media.MediaRouteSelector
 import androidx.mediarouter.media.MediaRouter
-import com.google.android.gms.cast.CastMediaControlIntent
 import eu.kanade.presentation.player.components.PlayerSheet
+import eu.kanade.tachiyomi.util.cast.CastHandler
 import tachiyomi.presentation.core.components.material.padding
 
 @Composable
 fun CastSheet(
-    selectedId: String,
-    onSelect: (String) -> Unit,
     onDismissRequest: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
-    val mediaRouter = remember(context) { MediaRouter.getInstance(context) }
+    val castHandler = remember(context) { CastHandler.getInstance(context) }
 
-    val castSelector = remember {
-        MediaRouteSelector.Builder().addControlCategory(
-            CastMediaControlIntent.categoryForRemotePlayback(
-                CastMediaControlIntent.DEFAULT_MEDIA_RECEIVER_APPLICATION_ID,
-            ),
-        ).build()
+    var discoveredCastDevices by remember {
+        mutableStateOf(castHandler.getCastRoutes())
     }
 
-    var castRoutes by remember { mutableStateOf(filterCastRoutes(mediaRouter, castSelector)) }
-
-    DisposableEffect(mediaRouter, castSelector) {
+    DisposableEffect(castHandler) {
         val callback = object : MediaRouter.Callback() {
             override fun onRouteAdded(router: MediaRouter, route: MediaRouter.RouteInfo) {
-                castRoutes = filterCastRoutes(router, castSelector)
+                discoveredCastDevices = castHandler.getCastRoutes()
             }
 
             override fun onRouteRemoved(router: MediaRouter, route: MediaRouter.RouteInfo) {
-                castRoutes = filterCastRoutes(router, castSelector)
+                discoveredCastDevices = castHandler.getCastRoutes()
             }
 
             override fun onRouteChanged(router: MediaRouter, route: MediaRouter.RouteInfo) {
-                castRoutes = filterCastRoutes(router, castSelector)
+                discoveredCastDevices = castHandler.getCastRoutes()
+            }
+
+            override fun onRouteSelected(router: MediaRouter, route: MediaRouter.RouteInfo) {
+                discoveredCastDevices = castHandler.getCastRoutes()
+            }
+
+            override fun onRouteUnselected(router: MediaRouter, route: MediaRouter.RouteInfo) {
+                discoveredCastDevices = castHandler.getCastRoutes()
             }
         }
 
-        mediaRouter.addCallback(
-            castSelector,
-            callback,
-            MediaRouter.CALLBACK_FLAG_REQUEST_DISCOVERY,
-        )
+        castHandler.registerCallback(callback)
 
         onDispose {
-            mediaRouter.removeCallback(callback)
+            castHandler.unregisterCallback(callback)
         }
     }
 
@@ -84,20 +79,24 @@ fun CastSheet(
         Column(
             verticalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small),
         ) {
-
             TrackSheetTitle(
                 title = "Cast",
                 actions = {
                     TextButton(
                         onClick = {
-                            castRoutes = filterCastRoutes(mediaRouter, castSelector)
+                            discoveredCastDevices = castHandler.getCastRoutes()
                         },
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.extraSmall),
+                            horizontalArrangement = Arrangement.spacedBy(
+                                MaterialTheme.padding.extraSmall,
+                            ),
                         ) {
-                            Icon(imageVector = Icons.Default.Refresh, contentDescription = null)
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Reload cast devices",
+                            )
                             Text(text = "Reload")
                         }
                     }
@@ -108,13 +107,19 @@ fun CastSheet(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small),
             ) {
-                castRoutes.forEach { route ->
+                discoveredCastDevices.forEach { route ->
+                    val isSelected = castHandler.isCurrentRoute(route)
+
                     CastEntry(
                         route = route,
-                        isSelected = route.id == selectedId,
-                        onSelect = {
-                            mediaRouter.selectRoute(route)
-                            onSelect(it)
+                        isSelected = isSelected,
+                        onClick = {
+                            if (isSelected) {
+                                castHandler.disconnect()
+                            } else {
+                                castHandler.connect(route)
+                            }
+                            onDismissRequest()
                         },
                     )
                 }
@@ -123,58 +128,51 @@ fun CastSheet(
     }
 }
 
-private fun filterCastRoutes(
-    mediaRouter: MediaRouter,
-    selector: MediaRouteSelector,
-): List<MediaRouter.RouteInfo> {
-    return mediaRouter.routes.filter { route ->
-        route.matchesSelector(selector) && route != mediaRouter.defaultRoute && route != mediaRouter.bluetoothRoute && route.isEnabled
-    }
-}
-
 @Composable
 fun CastEntry(
     route: MediaRouter.RouteInfo,
     isSelected: Boolean,
-    onSelect: (String) -> Unit,
+    onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val label = mapOf(
-        MediaRouter.RouteInfo.CONNECTION_STATE_CONNECTING to "Connecting",
-        MediaRouter.RouteInfo.CONNECTION_STATE_CONNECTED to "Connected",
-        MediaRouter.RouteInfo.CONNECTION_STATE_DISCONNECTED to "Disconnected",
-    )
+    val statusText = when (route.connectionState) {
+        MediaRouter.RouteInfo.CONNECTION_STATE_CONNECTING -> "Connecting"
+        MediaRouter.RouteInfo.CONNECTION_STATE_CONNECTED -> "Connected"
+        else -> "Disconnected"
+    }
 
-    val connectionIcon = mapOf(
-        MediaRouter.RouteInfo.CONNECTION_STATE_CONNECTING to Icons.Default.ConnectedTv,
-        MediaRouter.RouteInfo.CONNECTION_STATE_CONNECTED to Icons.Filled.CastConnected,
-        MediaRouter.RouteInfo.CONNECTION_STATE_DISCONNECTED to Icons.Default.Tv,
-    )
+    val statusIcon = when {
+        !isSelected -> Icons.Default.Tv
+        route.connectionState == MediaRouter.RouteInfo.CONNECTION_STATE_CONNECTING ->
+            Icons.Default.ConnectedTv
 
-    val defaultIcon = Icons.Default.Tv
+        route.connectionState == MediaRouter.RouteInfo.CONNECTION_STATE_CONNECTED ->
+            Icons.Default.CastConnected
+
+        else -> Icons.Default.Tv
+    }
 
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clickable(
-                onClick = { if (!isSelected) onSelect(route.id) else onSelect("") },
-            )
-            .padding(15.dp, 15.dp),
+            .clickable(onClick = onClick)
+            .padding(horizontal = 15.dp, vertical = 15.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Row(
             horizontalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                imageVector = if (isSelected) connectionIcon[route.connectionState] ?: defaultIcon else defaultIcon,
+                imageVector = statusIcon,
                 contentDescription = null,
             )
             Text(text = route.name)
         }
 
         if (isSelected) {
-            Text(text = label[route.connectionState] ?: "Disconnected")
+            Text(text = statusText)
         }
     }
 }

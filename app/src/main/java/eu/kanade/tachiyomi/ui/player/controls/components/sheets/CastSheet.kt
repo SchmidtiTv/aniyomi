@@ -26,6 +26,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.mediarouter.media.MediaRouter
+import com.google.android.gms.cast.framework.Session
+import com.google.android.gms.cast.framework.SessionManagerListener
 import eu.kanade.presentation.player.components.PlayerSheet
 import eu.kanade.tachiyomi.util.cast.CastHandler
 import tachiyomi.presentation.core.components.material.padding
@@ -38,37 +40,41 @@ fun CastSheet(
     val context = LocalContext.current
     val castHandler = remember(context) { CastHandler.getInstance(context) }
 
-    var discoveredCastDevices by remember {
-        mutableStateOf(castHandler.getCastRoutes())
+    var discoveredCastDevices by remember { mutableStateOf(castHandler.getCastRoutes()) }
+    var selectedRouteId by remember { mutableStateOf(castHandler.mediaRouter.selectedRoute.id) }
+
+    fun refreshState() {
+        discoveredCastDevices = castHandler.getCastRoutes()
+        selectedRouteId = castHandler.mediaRouter.selectedRoute.id
     }
 
     DisposableEffect(castHandler) {
-        val callback = object : MediaRouter.Callback() {
-            override fun onRouteAdded(router: MediaRouter, route: MediaRouter.RouteInfo) {
-                discoveredCastDevices = castHandler.getCastRoutes()
-            }
-
-            override fun onRouteRemoved(router: MediaRouter, route: MediaRouter.RouteInfo) {
-                discoveredCastDevices = castHandler.getCastRoutes()
-            }
-
-            override fun onRouteChanged(router: MediaRouter, route: MediaRouter.RouteInfo) {
-                discoveredCastDevices = castHandler.getCastRoutes()
-            }
-
-            override fun onRouteSelected(router: MediaRouter, route: MediaRouter.RouteInfo) {
-                discoveredCastDevices = castHandler.getCastRoutes()
-            }
-
-            override fun onRouteUnselected(router: MediaRouter, route: MediaRouter.RouteInfo) {
-                discoveredCastDevices = castHandler.getCastRoutes()
-            }
+        val routerCallback = object : MediaRouter.Callback() {
+            override fun onRouteAdded(router: MediaRouter, route: MediaRouter.RouteInfo) = refreshState()
+            override fun onRouteRemoved(router: MediaRouter, route: MediaRouter.RouteInfo) = refreshState()
+            override fun onRouteChanged(router: MediaRouter, route: MediaRouter.RouteInfo) = refreshState()
+            override fun onRouteSelected(router: MediaRouter, route: MediaRouter.RouteInfo) = refreshState()
+            override fun onRouteUnselected(router: MediaRouter, route: MediaRouter.RouteInfo) = refreshState()
         }
 
-        castHandler.registerCallback(callback)
+        val sessionListener = object : SessionManagerListener<Session> {
+            override fun onSessionEnded(session: Session, error: Int) = refreshState()
+            override fun onSessionSuspended(session: Session, reason: Int) = refreshState()
+            override fun onSessionStarted(session: Session, sessionId: String) = refreshState()
+            override fun onSessionResumed(session: Session, wasSuspended: Boolean) = refreshState()
+            override fun onSessionStarting(session: Session) = Unit
+            override fun onSessionStartFailed(session: Session, error: Int) = Unit
+            override fun onSessionEnding(session: Session) = Unit
+            override fun onSessionResuming(session: Session, sessionId: String) = Unit
+            override fun onSessionResumeFailed(session: Session, error: Int) = Unit
+        }
+
+        castHandler.registerCallback(routerCallback)
+        castHandler.addSessionManagerListener(sessionListener)
 
         onDispose {
-            castHandler.unregisterCallback(callback)
+            castHandler.unregisterCallback(routerCallback)
+            castHandler.removeSessionManagerListener(sessionListener)
         }
     }
 
@@ -108,17 +114,13 @@ fun CastSheet(
                 verticalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small),
             ) {
                 discoveredCastDevices.forEach { route ->
-                    val isSelected = castHandler.isCurrentRoute(route)
+                    val isSelected = route.id == selectedRouteId
 
                     CastEntry(
                         route = route,
                         isSelected = isSelected,
                         onClick = {
-                            if (isSelected) {
-                                castHandler.disconnect()
-                            } else {
-                                castHandler.connect(route)
-                            }
+                            if (isSelected) castHandler.disconnect() else castHandler.connect(route)
                             onDismissRequest()
                         },
                     )

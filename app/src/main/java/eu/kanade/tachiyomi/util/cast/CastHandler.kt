@@ -6,6 +6,7 @@ import androidx.mediarouter.media.MediaRouter
 import com.google.android.gms.cast.CastMediaControlIntent
 import com.google.android.gms.cast.framework.CastContext
 import com.google.android.gms.cast.framework.CastSession
+import com.google.android.gms.cast.framework.Session
 import com.google.android.gms.cast.framework.SessionManagerListener
 
 class CastHandler private constructor(context: Context) {
@@ -24,6 +25,7 @@ class CastHandler private constructor(context: Context) {
             )
             .build()
 
+    // --- Callbacks
     private val sessionListener = object : SessionManagerListener<CastSession> {
         override fun onSessionStarted(session: CastSession, sessionId: String) {
             castMediaServer.setSession(session)
@@ -64,6 +66,15 @@ class CastHandler private constructor(context: Context) {
         mediaRouter.removeCallback(callback)
     }
 
+    fun addSessionManagerListener(listener: SessionManagerListener<Session>) {
+        castContext.sessionManager.addSessionManagerListener(listener)
+    }
+
+    fun removeSessionManagerListener(listener: SessionManagerListener<Session>) {
+        castContext.sessionManager.removeSessionManagerListener(listener)
+    }
+
+    // --- Routes
     fun getCastRoutes(): List<MediaRouter.RouteInfo> {
         return mediaRouter.routes.filter { route ->
             route.matchesSelector(castSelector) &&
@@ -73,6 +84,11 @@ class CastHandler private constructor(context: Context) {
         }
     }
 
+    fun isCurrentRoute(route: MediaRouter.RouteInfo): Boolean {
+        return mediaRouter.selectedRoute == route || mediaRouter.selectedRoute.id == route.id
+    }
+
+    // --- Connection
     fun connect(route: MediaRouter.RouteInfo) {
         mediaRouter.selectRoute(route)
     }
@@ -83,10 +99,6 @@ class CastHandler private constructor(context: Context) {
 
     fun isConnected(): Boolean {
         return castMediaServer.isReady()
-    }
-
-    fun isCurrentRoute(route: MediaRouter.RouteInfo): Boolean {
-        return mediaRouter.selectedRoute == route || mediaRouter.selectedRoute?.id == route.id
     }
 
     companion object {

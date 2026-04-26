@@ -1,5 +1,6 @@
 package eu.kanade.tachiyomi.util.cast
 
+import eu.kanade.tachiyomi.animesource.model.Video
 import com.google.android.gms.cast.framework.CastSession
 
 class CastMediaServer {

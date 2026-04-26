@@ -17,7 +17,7 @@ android {
     namespace = "eu.kanade.tachiyomi"
 
     defaultConfig {
-        applicationId = "xyz.jmir.tachiyomi.mi"
+        applicationId = "de.schmidti.aniyomi" //         applicationId = "xyz.jmir.tachiyomi.mi"
 
         versionCode = 131
         versionName = "0.18.1.2"
@@ -137,6 +137,7 @@ android {
                 "META-INF/LICENSE",
                 "META-INF/NOTICE",
                 "META-INF/README.md",
+                "META-INF/INDEX.LIST", // "META-INF/INDEX.LIST" was not there
             )
         }
     }

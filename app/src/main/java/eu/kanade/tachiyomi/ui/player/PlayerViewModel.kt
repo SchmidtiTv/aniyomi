@@ -73,8 +73,10 @@ import eu.kanade.tachiyomi.ui.player.loader.EpisodeLoader
 import eu.kanade.tachiyomi.ui.player.loader.HosterLoader
 import eu.kanade.tachiyomi.ui.player.settings.GesturePreferences
 import eu.kanade.tachiyomi.ui.player.settings.PlayerPreferences
+import eu.kanade.tachiyomi.ui.player.sync.ListenerType
 import eu.kanade.tachiyomi.ui.player.sync.PlaybackEvent
 import eu.kanade.tachiyomi.ui.player.sync.PlaybackEventType
+import eu.kanade.tachiyomi.ui.player.sync.PlaybackListener
 import eu.kanade.tachiyomi.ui.player.sync.PlaybackSyncCoordinator
 import eu.kanade.tachiyomi.ui.player.utils.AniSkipApi
 import eu.kanade.tachiyomi.ui.player.utils.ChapterUtils.Companion.getStringRes
@@ -324,6 +326,19 @@ class PlayerViewModel @JvmOverloads constructor(
                 }
                 activity.setupCustomButtons(buttons)
                 _customButtons.update { _ -> CustomButtonFetchState.Success(buttons.toImmutableList()) }
+
+                _playbackSyncCoordinator.addListener(
+                    PlaybackListener(
+                        "PlayerViewModel-${UUID.randomUUID().toString()}",
+                        ListenerType.LOCAL_PLAYER,
+                        { state ->
+                            {
+
+                            }
+                        },
+                    ),
+                )
+
             } catch (e: Exception) {
                 logcat(LogPriority.ERROR, e)
                 _customButtons.update { _ -> CustomButtonFetchState.Error(e.message ?: "Unable to fetch buttons") }

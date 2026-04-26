@@ -16,8 +16,6 @@ enum class PlaybackEventType {
     ERROR
 }
 
-
-
 data class PlaybackListener(
     val listenerId: String,           // Unique identifier (e.g., "Cast", "Localplayer")
     val listenerType: ListenerType,   // Categorizes the listener's role

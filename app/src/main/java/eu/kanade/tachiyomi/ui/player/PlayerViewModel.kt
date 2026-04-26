@@ -617,36 +617,56 @@ class PlayerViewModel @JvmOverloads constructor(
     }
 
     fun pause(commandId: String = UUID.randomUUID().toString(), publishEvent: Boolean = !applyingCoordinatorState.get()) {
-        if (_paused.value && activity.player.paused == true) return
-        activity.player.paused = true
-        if (publishEvent) {
-            _playbackSyncCoordinator.addEvent(
-                PlaybackEvent(
-                    commandId,
-                    System.currentTimeMillis(),
-                    PlaybackEventType.PAUSE,
-                    true,
-                ),
-            )
-        }
-        _paused.update { true }
-        publishLocalPlaybackSyncState(commandId.takeIf { publishEvent })
+        applyPauseState(
+            paused = true,
+            updatePlayer = true,
+            commandId = commandId,
+            publishEvent = publishEvent,
+        )
     }
 
     fun unpause(commandId: String = UUID.randomUUID().toString(), publishEvent: Boolean = !applyingCoordinatorState.get()) {
-        if (!_paused.value && activity.player.paused == false) return
-        activity.player.paused = false
-        if (publishEvent) {
+        applyPauseState(
+            paused = false,
+            updatePlayer = true,
+            commandId = commandId,
+            publishEvent = publishEvent,
+        )
+    }
+
+    fun applyObservedPauseState(paused: Boolean) {
+        applyPauseState(
+            paused = paused,
+            updatePlayer = false,
+            commandId = null,
+            publishEvent = false,
+        )
+    }
+
+    private fun applyPauseState(
+        paused: Boolean,
+        updatePlayer: Boolean,
+        commandId: String?,
+        publishEvent: Boolean,
+    ) {
+        if (_paused.value == paused && (!updatePlayer || activity.player.paused == paused)) return
+
+        if (updatePlayer) {
+            activity.player.paused = paused
+        }
+
+        if (publishEvent && commandId != null) {
             _playbackSyncCoordinator.addEvent(
                 PlaybackEvent(
                     commandId,
                     System.currentTimeMillis(),
-                    PlaybackEventType.PLAY,
+                    if (paused) PlaybackEventType.PAUSE else PlaybackEventType.PLAY,
                     true,
                 ),
             )
         }
-        _paused.update { false }
+
+        _paused.update { paused }
         publishLocalPlaybackSyncState(commandId.takeIf { publishEvent })
     }
 

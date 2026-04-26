@@ -29,7 +29,6 @@ data class PlaybackSyncState(
     val durationMs: Long?,            // optional, oft spät bekannt
     val playbackState: PlaybackState, // BUFFERING/READY/ENDED/IDLE
 
-    // Konfliktauflösung
     val origin: SyncOrigin,           // LOCAL oder CAST
     val revision: Long,               // monoton hochzählen
     val updatedAtMs: Long,            // timestamp in ms

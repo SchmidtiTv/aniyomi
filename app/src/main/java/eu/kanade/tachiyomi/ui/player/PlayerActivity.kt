@@ -664,7 +664,7 @@ class PlayerActivity : BaseActivity() {
             "volume" -> viewModel.setMPVVolume(value.toInt())
             "volume-max" -> viewModel.volumeBoostCap = value.toInt() - 100
             // "chapter" -> viewModel.updateChapter(value)
-            "duration" -> viewModel.duration.update { value.toFloat() }
+            "duration" -> viewModel.updateDuration(value.toFloat())
             "user-data/current-anime/intro-length" -> viewModel.setAnimeSkipIntroLength(value)
         }
     }
@@ -698,11 +698,11 @@ class PlayerActivity : BaseActivity() {
             }
 
             "paused-for-cache" -> {
-                viewModel.isLoading.update { value }
+                viewModel.updatePlaybackLoadingState(value)
             }
 
             "seeking" -> {
-                viewModel.isLoading.update { value }
+                viewModel.updatePlaybackLoadingState(value)
             }
 
             "eof-reached" -> {
@@ -747,7 +747,7 @@ class PlayerActivity : BaseActivity() {
             MPVLib.mpvEventId.MPV_EVENT_FILE_LOADED -> {
                 viewModel.viewModelScope.launchIO { fileLoaded() }
             }
-            MPVLib.mpvEventId.MPV_EVENT_SEEK -> viewModel.isLoading.update { true }
+            MPVLib.mpvEventId.MPV_EVENT_SEEK -> viewModel.updatePlaybackLoadingState(true)
             MPVLib.mpvEventId.MPV_EVENT_PLAYBACK_RESTART -> player.isExiting = false
         }
     }
@@ -994,7 +994,7 @@ class PlayerActivity : BaseActivity() {
         viewModel.sheetShown.update { _ -> Sheets.None }
         viewModel.panelShown.update { _ -> Panels.None }
         viewModel.pause()
-        viewModel.isLoading.update { _ -> true }
+        viewModel.updatePlaybackLoadingState(true)
         viewModel.resetHosterState()
 
         lifecycleScope.launch {
@@ -1012,7 +1012,7 @@ class PlayerActivity : BaseActivity() {
                     if (viewModel.currentAnime.value != null && !autoPlay) {
                         launchUI { toast(AYMR.strings.no_next_episode) }
                     }
-                    viewModel.isLoading.update { _ -> false }
+                    viewModel.updatePlaybackLoadingState(false)
                 }
 
                 else -> {

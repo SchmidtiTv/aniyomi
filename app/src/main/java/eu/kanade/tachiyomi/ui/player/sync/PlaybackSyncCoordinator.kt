@@ -86,6 +86,7 @@ class PlaybackSyncCoordinator private constructor() {
     }
 
     private fun notifyListeners(state: PlaybackSyncState) {
+        logcat { "Notifying Listeners" }
         listeners.forEach { listener -> listener.callback(state) }
     }
 

@@ -77,7 +77,10 @@ import eu.kanade.tachiyomi.ui.player.sync.ListenerType
 import eu.kanade.tachiyomi.ui.player.sync.PlaybackEvent
 import eu.kanade.tachiyomi.ui.player.sync.PlaybackEventType
 import eu.kanade.tachiyomi.ui.player.sync.PlaybackListener
+import eu.kanade.tachiyomi.ui.player.sync.PlaybackState
+import eu.kanade.tachiyomi.ui.player.sync.PlaybackSyncState
 import eu.kanade.tachiyomi.ui.player.sync.PlaybackSyncCoordinator
+import eu.kanade.tachiyomi.ui.player.sync.SyncOrigin
 import eu.kanade.tachiyomi.ui.player.utils.AniSkipApi
 import eu.kanade.tachiyomi.ui.player.utils.ChapterUtils.Companion.getStringRes
 import eu.kanade.tachiyomi.ui.player.utils.TrackSelect
@@ -140,6 +143,7 @@ import java.io.InputStream
 import java.util.Date
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.abs
 import kotlin.coroutines.cancellation.CancellationException
 
 class PlayerViewModelProviderFactory(
@@ -178,6 +182,10 @@ class PlayerViewModel @JvmOverloads constructor(
 ) : ViewModel() {
 
     private val _playbackSyncCoordinator = PlaybackSyncCoordinator.getInstance()
+    private val playbackSyncListenerId = "PlayerViewModel-${UUID.randomUUID()}"
+    private val applyingCoordinatorState = AtomicBoolean(false)
+    private var localPlaybackRevision = 0L
+    private var lastAppliedCoordinatorCommandId: String? = null
 
     private val _currentPlaylist = MutableStateFlow<List<Episode>>(emptyList())
     val currentPlaylist = _currentPlaylist.asStateFlow()
@@ -329,15 +337,12 @@ class PlayerViewModel @JvmOverloads constructor(
 
                 _playbackSyncCoordinator.addListener(
                     PlaybackListener(
-                        "PlayerViewModel-${UUID.randomUUID().toString()}",
+                        playbackSyncListenerId,
                         ListenerType.LOCAL_PLAYER,
-                        { state ->
-                            {
-
-                            }
-                        },
+                        ::applyCoordinatorState,
                     ),
                 )
+                publishLocalPlaybackSyncState()
 
             } catch (e: Exception) {
                 logcat(LogPriority.ERROR, e)
@@ -568,6 +573,17 @@ class PlayerViewModel @JvmOverloads constructor(
     fun updatePlayBackPos(pos: Float) {
         onSecondReached(pos.toInt(), duration.value.toInt())
         _pos.update { pos }
+        publishLocalPlaybackSyncState()
+    }
+
+    fun updateDuration(value: Float) {
+        duration.update { value }
+        publishLocalPlaybackSyncState()
+    }
+
+    fun updatePlaybackLoadingState(value: Boolean) {
+        isLoading.update { value }
+        publishLocalPlaybackSyncState()
     }
 
     fun updateReadAhead(value: Long) {
@@ -600,30 +616,38 @@ class PlayerViewModel @JvmOverloads constructor(
         }
     }
 
-    fun pause() {
+    fun pause(commandId: String = UUID.randomUUID().toString(), publishEvent: Boolean = !applyingCoordinatorState.get()) {
+        if (_paused.value && activity.player.paused == true) return
         activity.player.paused = true
-        _playbackSyncCoordinator.addEvent(
-            PlaybackEvent(
-                UUID.randomUUID().toString(),
-                System.currentTimeMillis(),
-                PlaybackEventType.PAUSE,
-                true,
-            ),
-        )
+        if (publishEvent) {
+            _playbackSyncCoordinator.addEvent(
+                PlaybackEvent(
+                    commandId,
+                    System.currentTimeMillis(),
+                    PlaybackEventType.PAUSE,
+                    true,
+                ),
+            )
+        }
         _paused.update { true }
+        publishLocalPlaybackSyncState(commandId.takeIf { publishEvent })
     }
 
-    fun unpause() {
+    fun unpause(commandId: String = UUID.randomUUID().toString(), publishEvent: Boolean = !applyingCoordinatorState.get()) {
+        if (!_paused.value && activity.player.paused == false) return
         activity.player.paused = false
-        _playbackSyncCoordinator.addEvent(
-            PlaybackEvent(
-                UUID.randomUUID().toString(),
-                System.currentTimeMillis(),
-                PlaybackEventType.PLAY,
-                true,
-            ),
-        )
+        if (publishEvent) {
+            _playbackSyncCoordinator.addEvent(
+                PlaybackEvent(
+                    commandId,
+                    System.currentTimeMillis(),
+                    PlaybackEventType.PLAY,
+                    true,
+                ),
+            )
+        }
         _paused.update { false }
+        publishLocalPlaybackSyncState(commandId.takeIf { publishEvent })
     }
 
     private val showStatusBar = playerPreferences.showSystemStatusBar().get()
@@ -1071,6 +1095,7 @@ class PlayerViewModel @JvmOverloads constructor(
     }
 
     override fun onCleared() {
+        _playbackSyncCoordinator.removeListener(playbackSyncListenerId)
         if (currentEpisode.value != null) {
             saveWatchingProgress(currentEpisode.value!!)
             episodeToDownload?.let {
@@ -1251,6 +1276,7 @@ class PlayerViewModel @JvmOverloads constructor(
 
                 _currentEpisode.update { _ -> episode }
                 _currentSource.update { _ -> source }
+                publishLocalPlaybackSyncState()
 
                 updateEpisode(episode)
 
@@ -1485,6 +1511,7 @@ class PlayerViewModel @JvmOverloads constructor(
         )
 
         _currentVideo.update { _ -> resolvedVideo }
+        publishLocalPlaybackSyncState()
 
         qualityIndex = Pair(hosterIndex, videoIndex)
 
@@ -1563,6 +1590,7 @@ class PlayerViewModel @JvmOverloads constructor(
         val chosenEpisode = currentPlaylist.value.firstOrNull { ep -> ep.id == episodeId } ?: return null
 
         _currentEpisode.update { _ -> chosenEpisode }
+        publishLocalPlaybackSyncState()
         updateEpisode(chosenEpisode)
 
         return withIOContext {
@@ -1620,6 +1648,70 @@ class PlayerViewModel @JvmOverloads constructor(
         val inDownloadRange = seconds.toDouble() / totalSeconds > 0.35
         if (inDownloadRange) {
             downloadNextEpisodes()
+        }
+    }
+
+    private fun currentPlaybackMediaId(): String? {
+        return currentEpisode.value?.id?.toString() ?: currentVideo.value?.videoUrl
+    }
+
+    private fun currentPlaybackState(): PlaybackState {
+        if (currentPlaybackMediaId() == null) return PlaybackState.IDLE
+        if (duration.value > 0f && pos.value >= duration.value) return PlaybackState.ENDED
+        if (isLoading.value) return PlaybackState.BUFFERING
+        return PlaybackState.READY
+    }
+
+    private fun publishLocalPlaybackSyncState(commandId: String? = null) {
+        if (applyingCoordinatorState.get()) return
+
+        val mediaId = currentPlaybackMediaId() ?: return
+        val currentRevision = _playbackSyncCoordinator.getCurrentSyncState()?.revision ?: 0L
+        localPlaybackRevision = maxOf(localPlaybackRevision, currentRevision) + 1
+        _playbackSyncCoordinator.updateState(
+            PlaybackSyncState(
+                mediaId = mediaId,
+                playWhenReady = !paused.value,
+                positionMs = (pos.value * 1000).toLong(),
+                durationMs = duration.value.takeIf { it > 0f }?.let { (it * 1000).toLong() },
+                playbackState = currentPlaybackState(),
+                origin = SyncOrigin.LOCAL,
+                revision = localPlaybackRevision,
+                updatedAtMs = System.currentTimeMillis(),
+                lastCommandId = commandId,
+            ),
+        )
+    }
+
+    private fun applyCoordinatorState(state: PlaybackSyncState) {
+        if (state.origin == SyncOrigin.LOCAL) return
+        if (state.lastCommandId != null && state.lastCommandId == lastAppliedCoordinatorCommandId) return
+
+        val currentMediaId = currentPlaybackMediaId() ?: return
+        if (state.mediaId != currentMediaId) return
+
+        applyingCoordinatorState.set(true)
+        try {
+            localPlaybackRevision = maxOf(localPlaybackRevision, state.revision)
+            state.durationMs?.let { syncedDurationMs ->
+                duration.update { syncedDurationMs / 1000f }
+            }
+
+            val targetPositionSeconds = (state.positionMs / 1000L).toInt()
+            if (abs(pos.value - targetPositionSeconds) >= 1f) {
+                seekTo(targetPositionSeconds)
+                _pos.update { targetPositionSeconds.toFloat() }
+            }
+
+            if (state.playWhenReady) {
+                unpause(commandId = state.lastCommandId ?: UUID.randomUUID().toString(), publishEvent = false)
+            } else {
+                pause(commandId = state.lastCommandId ?: UUID.randomUUID().toString(), publishEvent = false)
+            }
+
+            lastAppliedCoordinatorCommandId = state.lastCommandId
+        } finally {
+            applyingCoordinatorState.set(false)
         }
     }
 

@@ -6,6 +6,7 @@ import java.util.concurrent.CopyOnWriteArraySet
 class PlaybackSyncCoordinator private constructor() {
     private val eventQueue = ArrayDeque<PlaybackCommand<*>>()
     private val timeToLiveMs = 3000 // 3s
+    private val passiveProgressNotifyIntervalMs = 5000L
 
     private val listeners = CopyOnWriteArraySet<PlaybackSessionListener>()
 
@@ -14,8 +15,12 @@ class PlaybackSyncCoordinator private constructor() {
     // -- States
     @Volatile
     private var currentState: PlaybackSessionState? = null
+    private var lastNotifiedState: PlaybackSessionState? = null
+    private var lastPassiveProgressNotificationAtMs = 0L
 
     fun updateState(newState: PlaybackSessionState) {
+        var stateToNotify: PlaybackSessionState? = null
+
         synchronized(syncLock) {
             val current = currentState
             if (current == null ||
@@ -24,9 +29,18 @@ class PlaybackSyncCoordinator private constructor() {
             ) {
                 currentState = newState
 
-                notifyListeners(newState)
+                val passiveProgressUpdate = isPassiveProgressUpdate(lastNotifiedState, newState)
+                if (shouldNotifyListeners(newState)) {
+                    lastNotifiedState = newState
+                    if (passiveProgressUpdate) {
+                        lastPassiveProgressNotificationAtMs = newState.updatedAtMs
+                    }
+                    stateToNotify = newState
+                }
             }
         }
+
+        stateToNotify?.let(::notifyListeners)
     }
 
     fun getCurrentSyncState(): PlaybackSessionState? = currentState
@@ -60,6 +74,30 @@ class PlaybackSyncCoordinator private constructor() {
     private fun clearOldEvents() {
         val currentTime = System.currentTimeMillis()
         eventQueue.removeAll { event -> currentTime - event.eventTime > timeToLiveMs }
+    }
+
+    private fun shouldNotifyListeners(newState: PlaybackSessionState): Boolean {
+        val previousNotification = lastNotifiedState ?: return true
+
+        if (!isPassiveProgressUpdate(previousNotification, newState)) return true
+
+        return newState.updatedAtMs - lastPassiveProgressNotificationAtMs >= passiveProgressNotifyIntervalMs
+    }
+
+    private fun isPassiveProgressUpdate(
+        oldState: PlaybackSessionState?,
+        newState: PlaybackSessionState,
+    ): Boolean {
+        if (oldState == null) return false
+
+        return oldState.mediaId == newState.mediaId &&
+            oldState.playWhenReady == newState.playWhenReady &&
+            oldState.durationMs == newState.durationMs &&
+            oldState.playbackState == newState.playbackState &&
+            oldState.playbackSpeed == newState.playbackSpeed &&
+            oldState.trackSelection == newState.trackSelection &&
+            oldState.origin == newState.origin &&
+            oldState.lastCommandId == newState.lastCommandId
     }
 
     // --- Adders

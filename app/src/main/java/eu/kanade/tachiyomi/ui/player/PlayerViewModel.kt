@@ -80,6 +80,7 @@ import eu.kanade.tachiyomi.ui.player.sync.PlaybackListener
 import eu.kanade.tachiyomi.ui.player.sync.PlaybackState
 import eu.kanade.tachiyomi.ui.player.sync.PlaybackSyncState
 import eu.kanade.tachiyomi.ui.player.sync.PlaybackSyncCoordinator
+import eu.kanade.tachiyomi.ui.player.sync.PlaybackTrackSelection
 import eu.kanade.tachiyomi.ui.player.sync.SyncOrigin
 import eu.kanade.tachiyomi.ui.player.utils.AniSkipApi
 import eu.kanade.tachiyomi.ui.player.utils.ChapterUtils.Companion.getStringRes
@@ -527,6 +528,10 @@ class PlayerViewModel @JvmOverloads constructor(
 
     fun selectAudio(id: Int) {
         activity.player.aid = id
+        emitPlaybackCommand(
+            eventType = PlaybackEventType.SET_TRACK_SELECTION,
+            newValue = currentTrackSelection(audioTrackId = id),
+        )
     }
 
     fun updateAudio(id: Int) {
@@ -564,6 +569,12 @@ class PlayerViewModel @JvmOverloads constructor(
         }
         activity.player.secondarySid = _selectedSubtitles.value.second
         activity.player.sid = _selectedSubtitles.value.first
+        emitPlaybackCommand(
+            eventType = PlaybackEventType.SET_TRACK_SELECTION,
+            newValue = currentTrackSelection(
+                subtitleTrackId = _selectedSubtitles.value.first.takeIf { it != -1 },
+            ),
+        )
     }
 
     fun updateSubtitle(sid: Int, secondarySid: Int) {
@@ -584,6 +595,19 @@ class PlayerViewModel @JvmOverloads constructor(
     fun updatePlaybackLoadingState(value: Boolean) {
         isLoading.update { value }
         publishLocalPlaybackSyncState()
+    }
+
+    fun updatePlaybackSpeed(value: Float) {
+        playbackSpeed.update { value }
+        publishLocalPlaybackSyncState()
+    }
+
+    fun setPlaybackSpeed(value: Float) {
+        MPVLib.setPropertyDouble("speed", value.toDouble())
+        emitPlaybackCommand(
+            eventType = PlaybackEventType.SET_SPEED,
+            newValue = value,
+        )
     }
 
     fun updateReadAhead(value: Long) {
@@ -662,12 +686,21 @@ class PlayerViewModel @JvmOverloads constructor(
                     System.currentTimeMillis(),
                     if (paused) PlaybackEventType.PAUSE else PlaybackEventType.PLAY,
                     true,
+                    SyncOrigin.LOCAL,
                 ),
             )
         }
 
         _paused.update { paused }
         publishLocalPlaybackSyncState(commandId.takeIf { publishEvent })
+    }
+
+    fun stopPlayback() {
+        MPVLib.command(arrayOf("stop"))
+        emitPlaybackCommand(
+            eventType = PlaybackEventType.STOP,
+            newValue = currentPlaybackMediaId(),
+        )
     }
 
     private val showStatusBar = playerPreferences.showSystemStatusBar().get()
@@ -750,11 +783,21 @@ class PlayerViewModel @JvmOverloads constructor(
 
     fun seekBy(offset: Int, precise: Boolean = false) {
         MPVLib.command(arrayOf("seek", offset.toString(), if (precise) "relative+exact" else "relative"))
+        emitPlaybackCommand(
+            eventType = PlaybackEventType.SEEK_TO,
+            newValue = ((pos.value + offset).coerceAtLeast(0f) * 1000).toLong(),
+        )
     }
 
-    fun seekTo(position: Int, precise: Boolean = true) {
+    fun seekTo(position: Int, precise: Boolean = true, publishEvent: Boolean = true) {
         if (position !in 0..(activity.player.duration ?: 0)) return
         MPVLib.command(arrayOf("seek", position.toString(), if (precise) "absolute" else "absolute+keyframes"))
+        if (publishEvent) {
+            emitPlaybackCommand(
+                eventType = PlaybackEventType.SEEK_TO,
+                newValue = position * 1000L,
+            )
+        }
     }
 
     fun changeBrightnessTo(
@@ -1296,7 +1339,13 @@ class PlayerViewModel @JvmOverloads constructor(
 
                 _currentEpisode.update { _ -> episode }
                 _currentSource.update { _ -> source }
-                publishLocalPlaybackSyncState()
+                val commandId = UUID.randomUUID().toString()
+                publishLocalPlaybackSyncState(commandId)
+                emitPlaybackCommand(
+                    eventType = PlaybackEventType.LOAD_MEDIA,
+                    newValue = episode.id?.toString(),
+                    commandId = commandId,
+                )
 
                 updateEpisode(episode)
 
@@ -1531,7 +1580,13 @@ class PlayerViewModel @JvmOverloads constructor(
         )
 
         _currentVideo.update { _ -> resolvedVideo }
-        publishLocalPlaybackSyncState()
+        val commandId = UUID.randomUUID().toString()
+        publishLocalPlaybackSyncState(commandId)
+        emitPlaybackCommand(
+            eventType = PlaybackEventType.LOAD_MEDIA,
+            newValue = resolvedVideo.videoUrl,
+            commandId = commandId,
+        )
 
         qualityIndex = Pair(hosterIndex, videoIndex)
 
@@ -1610,7 +1665,13 @@ class PlayerViewModel @JvmOverloads constructor(
         val chosenEpisode = currentPlaylist.value.firstOrNull { ep -> ep.id == episodeId } ?: return null
 
         _currentEpisode.update { _ -> chosenEpisode }
-        publishLocalPlaybackSyncState()
+        val commandId = UUID.randomUUID().toString()
+        publishLocalPlaybackSyncState(commandId)
+        emitPlaybackCommand(
+            eventType = PlaybackEventType.LOAD_MEDIA,
+            newValue = chosenEpisode.id?.toString(),
+            commandId = commandId,
+        )
         updateEpisode(chosenEpisode)
 
         return withIOContext {
@@ -1682,6 +1743,34 @@ class PlayerViewModel @JvmOverloads constructor(
         return PlaybackState.READY
     }
 
+    private fun currentTrackSelection(
+        audioTrackId: Int? = selectedAudio.value.takeIf { it != -1 },
+        subtitleTrackId: Int? = selectedSubtitles.value.first.takeIf { it != -1 },
+    ): PlaybackTrackSelection {
+        return PlaybackTrackSelection(
+            audioTrackId = audioTrackId,
+            subtitleTrackId = subtitleTrackId,
+        )
+    }
+
+    private fun <T> emitPlaybackCommand(
+        eventType: PlaybackEventType,
+        newValue: T,
+        commandId: String = UUID.randomUUID().toString(),
+    ) {
+        if (applyingCoordinatorState.get()) return
+
+        _playbackSyncCoordinator.addEvent(
+            PlaybackEvent(
+                commandId = commandId,
+                eventTime = System.currentTimeMillis(),
+                commandType = eventType,
+                newValue = newValue,
+                origin = SyncOrigin.LOCAL,
+            ),
+        )
+    }
+
     private fun publishLocalPlaybackSyncState(commandId: String? = null) {
         if (applyingCoordinatorState.get()) return
 
@@ -1695,6 +1784,8 @@ class PlayerViewModel @JvmOverloads constructor(
                 positionMs = (pos.value * 1000).toLong(),
                 durationMs = duration.value.takeIf { it > 0f }?.let { (it * 1000).toLong() },
                 playbackState = currentPlaybackState(),
+                playbackSpeed = playbackSpeed.value,
+                trackSelection = currentTrackSelection(),
                 origin = SyncOrigin.LOCAL,
                 revision = localPlaybackRevision,
                 updatedAtMs = System.currentTimeMillis(),
@@ -1721,6 +1812,11 @@ class PlayerViewModel @JvmOverloads constructor(
             if (abs(pos.value - targetPositionSeconds) >= 1f) {
                 seekTo(targetPositionSeconds)
                 _pos.update { targetPositionSeconds.toFloat() }
+            }
+
+            if (abs(playbackSpeed.value - state.playbackSpeed) >= 0.01f) {
+                MPVLib.setPropertyDouble("speed", state.playbackSpeed.toDouble())
+                playbackSpeed.update { state.playbackSpeed }
             }
 
             if (state.playWhenReady) {

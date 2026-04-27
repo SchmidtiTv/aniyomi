@@ -79,6 +79,7 @@ import `is`.xyz.mpv.MPVLib
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.update
+import tachiyomi.core.common.util.system.logcat
 import tachiyomi.presentation.core.components.material.padding
 import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.util.collectAsState
@@ -119,6 +120,7 @@ fun PlayerControls(
 
     val playerTimeToDisappear by playerPreferences.playerTimeToDisappear().collectAsState()
     var isSeeking by remember { mutableStateOf(false) }
+    var pendingTimelineSeek by remember { mutableStateOf<Float?>(null) }
     var resetControls by remember { mutableStateOf(true) }
 
     val customButtons by viewModel.customButtons.collectAsState()
@@ -386,10 +388,17 @@ fun PlayerControls(
                         readAheadValue = readAhead,
                         onValueChange = {
                             isSeeking = true
+                            pendingTimelineSeek = it
                             viewModel.updatePlayBackPos(it)
-                            viewModel.seekTo(it.toInt(), preciseSeeking)
+                            viewModel.seekTo(it.toInt(), preciseSeeking, publishEvent = false)
                         },
-                        onValueChangeFinished = { isSeeking = false },
+                        onValueChangeFinished = {
+                            pendingTimelineSeek?.let {
+                                viewModel.seekTo(it.toInt(), preciseSeeking)
+                            }
+                            pendingTimelineSeek = null
+                            isSeeking = false
+                        },
                         timersInverted = Pair(false, invertDuration),
                         durationTimerOnCLick = { playerPreferences.invertDuration().set(!invertDuration) },
                         positionTimerOnClick = {},
@@ -535,9 +544,7 @@ fun PlayerControls(
                         currentChapter = currentChapter?.toSegment(),
                         onLockControls = viewModel::lockControls,
                         onCycleRotation = viewModel::cycleScreenRotations,
-                        onPlaybackSpeedChange = {
-                            MPVLib.setPropertyDouble("speed", it.toDouble())
-                        },
+                        onPlaybackSpeedChange = viewModel::setPlaybackSpeed,
                         onOpenSheet = viewModel::showSheet,
                     )
                 }
@@ -594,7 +601,7 @@ fun PlayerControls(
             decoder = decoder,
             onUpdateDecoder = viewModel::updateDecoder,
             speed = speed,
-            onSpeedChange = { MPVLib.setPropertyDouble("speed", it.toFixed(2).toDouble()) },
+            onSpeedChange = { viewModel.setPlaybackSpeed(it.toFixed(2)) },
             sleepTimerTimeRemaining = sleepTimerTimeRemaining,
             onStartSleepTimer = viewModel::startTimer,
             buttons = customButtons.getButtons().toImmutableList(),

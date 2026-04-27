@@ -4,18 +4,18 @@ import tachiyomi.core.common.util.system.logcat
 import java.util.concurrent.CopyOnWriteArraySet
 
 class PlaybackSyncCoordinator private constructor() {
-    private val eventQueue = ArrayDeque<PlaybackEvent<*>>()
+    private val eventQueue = ArrayDeque<PlaybackCommand<*>>()
     private val timeToLiveMs = 3000 // 3s
 
-    private val listeners = CopyOnWriteArraySet<PlaybackListener>()
+    private val listeners = CopyOnWriteArraySet<PlaybackSessionListener>()
 
     private val syncLock = Any()
 
     // -- States
     @Volatile
-    private var currentState: PlaybackSyncState? = null
+    private var currentState: PlaybackSessionState? = null
 
-    fun updateState(newState: PlaybackSyncState) {
+    fun updateState(newState: PlaybackSessionState) {
         synchronized(syncLock) {
             val current = currentState
             if (current == null ||
@@ -23,14 +23,13 @@ class PlaybackSyncCoordinator private constructor() {
                 (newState.revision == current.revision && newState.updatedAtMs > current.updatedAtMs)
             ) {
                 currentState = newState
-                eventQueue.removeAll { event -> event.eventTime <= newState.updatedAtMs }
 
                 notifyListeners(newState)
             }
         }
     }
 
-    fun getCurrentSyncState(): PlaybackSyncState? = currentState
+    fun getCurrentSyncState(): PlaybackSessionState? = currentState
 
     fun clearState() {
         synchronized(syncLock) {
@@ -51,10 +50,10 @@ class PlaybackSyncCoordinator private constructor() {
         }
     }
 
-    fun getLatestEventByType(eventType: PlaybackEventType): PlaybackEvent<*>? {
+    fun getLatestEventByType(eventType: PlaybackCommandType): PlaybackCommand<*>? {
         synchronized(syncLock) {
             clearOldEvents()
-            return eventQueue.findLast { event -> event.eventType == eventType }
+            return eventQueue.findLast { event -> event.commandType == eventType }
         }
     }
 
@@ -64,18 +63,17 @@ class PlaybackSyncCoordinator private constructor() {
     }
 
     // --- Adders
-    fun addEvent(event: PlaybackEvent<*>) {
+    fun addEvent(event: PlaybackCommand<*>) {
         synchronized(syncLock) {
             clearOldEvents()
-            val stateTimestamp = currentState?.updatedAtMs ?: 0L
-            if (event.eventTime > stateTimestamp) {
+            if (eventQueue.none { queuedEvent -> queuedEvent.commandId == event.commandId }) {
                 eventQueue.add(event)
-                logcat { "Added new Event -> $event" }
+                logcat { "Added command -> $event" }
             }
         }
     }
 
-    fun addListener(listener: PlaybackListener) {
+    fun addListener(listener: PlaybackSessionListener) {
         listeners.add(listener)
         currentState?.let { state -> listener.callback(state) }
     }
@@ -85,7 +83,7 @@ class PlaybackSyncCoordinator private constructor() {
         listeners.removeIf { listener -> listener.listenerId == listenerId }
     }
 
-    private fun notifyListeners(state: PlaybackSyncState) {
+    private fun notifyListeners(state: PlaybackSessionState) {
         logcat { "Notifying Listeners" }
         listeners.forEach { listener -> listener.callback(state) }
     }

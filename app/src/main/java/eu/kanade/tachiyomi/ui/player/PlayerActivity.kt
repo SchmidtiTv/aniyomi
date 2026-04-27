@@ -324,7 +324,7 @@ class PlayerActivity : BaseActivity() {
         player.isExiting = true
         if (isFinishing) {
             viewModel.deletePendingEpisodes()
-            MPVLib.command(arrayOf("stop"))
+            viewModel.stopPlayback()
         } else {
             viewModel.pause()
         }
@@ -736,7 +736,7 @@ class PlayerActivity : BaseActivity() {
     internal fun onObserverEvent(property: String, value: Double) {
         if (player.isExiting) return
         when (property) {
-            "speed" -> viewModel.playbackSpeed.update { value.toFloat() }
+            "speed" -> viewModel.updatePlaybackSpeed(value.toFloat())
             "video-params/aspect" -> if (isPipSupportedAndEnabled) createPipParams()
         }
     }

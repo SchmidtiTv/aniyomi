@@ -1,45 +1,64 @@
 package eu.kanade.tachiyomi.ui.player.sync
 
-data class PlaybackEvent<T>(
+data class PlaybackTrackSelection(
+    val audioTrackId: Int? = null,
+    val subtitleTrackId: Int? = null,
+)
+
+data class PlaybackCommand<T>(
     val commandId: String,
     val eventTime: Long,
-    val eventType: PlaybackEventType,
-    val newValue: T
+    val commandType: PlaybackCommandType,
+    val newValue: T,
+    val origin: SyncOrigin,
 )
 
-enum class PlaybackEventType {
-    PLAY,
-    PAUSE,
-    SEEK,
-    MEDIA_CHANGED,
-    ENDED,
-    ERROR
+enum class PlaybackCommandType {
+    PLAY,                       // Triggered when playback starts or resumes.
+    PAUSE,                      // Triggered when playback is paused.
+    SEEK_TO,                    // Triggered when the user seeks to a new position. The newValue is the target position in milliseconds.
+    LOAD_MEDIA,                 // Triggered when a new media item is loaded. The newValue is the mediaId of the loaded item.
+    SET_SPEED,                  // Triggered when the playback speed is changed. The newValue is the new speed (e.g., 1.0 for normal speed).
+    SET_TRACK_SELECTION,        // Triggered when the user changes audio or subtitle tracks. The newValue is a PlaybackTrackSelection object containing the selected track IDs.
+    STOP,                       // Triggered when playback is stopped, e.g The player gets closed.
 }
 
-data class PlaybackListener(
-    val listenerId: String,           // Unique identifier (e.g., "Cast", "Localplayer")
-    val listenerType: ListenerType,   // Categorizes the listener's role
-    val callback: (PlaybackSyncState) -> Unit // Passes the state to the listener upon update
+data class PlaybackSessionListener(
+    val listenerId: String,
+    val listenerType: ListenerType,
+    val callback: (PlaybackSessionState) -> Unit,
 )
 
-data class PlaybackSyncState(
-    val mediaId: String,              // Episode/Video Identifier
-    val playWhenReady: Boolean,       // spielt oder pausiert
-    val positionMs: Long,             // aktuelle Position
-    val durationMs: Long?,            // optional, oft spät bekannt
-    val playbackState: PlaybackState, // BUFFERING/READY/ENDED/IDLE
-
-    val origin: SyncOrigin,           // LOCAL oder CAST
-    val revision: Long,               // monoton hochzählen
-    val updatedAtMs: Long,            // timestamp in ms
-    val lastCommandId: String? = null // echo-loop Schutz
+data class PlaybackSessionState(
+    val mediaId: String,
+    val playWhenReady: Boolean,
+    val positionMs: Long,
+    val durationMs: Long?,
+    val playbackState: PlaybackState,
+    val playbackSpeed: Float = 1f,
+    val trackSelection: PlaybackTrackSelection? = null,
+    val origin: SyncOrigin,
+    val revision: Long,
+    val updatedAtMs: Long,
+    val lastCommandId: String? = null,
 )
 
 enum class PlaybackState { IDLE, BUFFERING, READY, ENDED }
-enum class SyncOrigin { LOCAL, CAST, SYSTEM }
-enum class ListenerType {
-    LOCAL_PLAYER,   // The primary internal player (e.g., ExoPlayer)
-    CAST_SESSION,   // Remote playback sessions (Chromecast, AirPlay)
-    UI_OBSERVER,    // Interface components like SeekBars or Notification managers
-    SYSTEM_SERVICE  // Media sessions or background synchronization tasks
+
+enum class SyncOrigin {
+    LOCAL,
+    CAST,
+    SYSTEM,
 }
+
+enum class ListenerType {
+    LOCAL_PLAYER,
+    CAST_SESSION,
+    UI_OBSERVER,
+    SYSTEM_SERVICE,
+}
+
+typealias PlaybackEvent<T> = PlaybackCommand<T>
+typealias PlaybackEventType = PlaybackCommandType
+typealias PlaybackListener = PlaybackSessionListener
+typealias PlaybackSyncState = PlaybackSessionState

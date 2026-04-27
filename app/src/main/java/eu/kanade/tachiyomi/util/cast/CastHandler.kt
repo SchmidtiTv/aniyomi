@@ -4,17 +4,32 @@ import android.content.Context
 import androidx.mediarouter.media.MediaRouteSelector
 import androidx.mediarouter.media.MediaRouter
 import com.google.android.gms.cast.CastMediaControlIntent
+import com.google.android.gms.cast.MediaInfo
+import com.google.android.gms.cast.MediaLoadRequestData
+import com.google.android.gms.cast.MediaMetadata
 import com.google.android.gms.cast.framework.CastContext
 import com.google.android.gms.cast.framework.CastSession
 import com.google.android.gms.cast.framework.Session
 import com.google.android.gms.cast.framework.SessionManagerListener
+import eu.kanade.tachiyomi.ui.player.sync.ListenerType
+import eu.kanade.tachiyomi.ui.player.sync.PlaybackListener
+import eu.kanade.tachiyomi.ui.player.sync.PlaybackSessionState
+import eu.kanade.tachiyomi.ui.player.sync.PlaybackSyncCoordinator
+import tachiyomi.core.common.util.lang.launchUI
+import tachiyomi.core.common.util.system.logcat
+import java.util.UUID
 
 class CastHandler private constructor(context: Context) {
     private val applicationContext: Context = context.applicationContext
     private val castContext: CastContext = CastContext.getSharedInstance(applicationContext)
 
+    private val playbackSyncListenerId = "CastHandler-${UUID.randomUUID()}"
+    private val playbackCoordinator = PlaybackSyncCoordinator.getInstance()
+
+    private var currentSession: CastSession? = null
+    private var currentLoadedMediaId: String? = null
+
     val mediaRouter: MediaRouter = MediaRouter.getInstance(applicationContext)
-    val castMediaServer: CastMediaServer = CastMediaServer()
 
     val castSelector: MediaRouteSelector =
         MediaRouteSelector.Builder()
@@ -28,23 +43,38 @@ class CastHandler private constructor(context: Context) {
     // --- Callbacks
     private val sessionListener = object : SessionManagerListener<CastSession> {
         override fun onSessionStarted(session: CastSession, sessionId: String) {
-            castMediaServer.setSession(session)
+            currentSession = session
+            currentLoadedMediaId = null
+            CastProxyServer.start(applicationContext)
         }
 
         override fun onSessionResumed(session: CastSession, wasSuspended: Boolean) {
-            castMediaServer.setSession(session)
+            currentSession = session
+            currentLoadedMediaId = null
+            CastProxyServer.start(applicationContext)
         }
 
         override fun onSessionEnded(session: CastSession, error: Int) {
-            castMediaServer.setSession(null)
+            currentSession = null
+            currentLoadedMediaId = null
+            CastProxyServer.stop()
         }
 
         override fun onSessionResuming(session: CastSession, sessionId: String) = Unit
         override fun onSessionStarting(session: CastSession) = Unit
-        override fun onSessionStartFailed(session: CastSession, error: Int) = Unit
+        override fun onSessionStartFailed(session: CastSession, error: Int) {
+            currentSession = null
+            currentLoadedMediaId = null
+        }
         override fun onSessionEnding(session: CastSession) = Unit
-        override fun onSessionResumeFailed(session: CastSession, error: Int) = Unit
-        override fun onSessionSuspended(session: CastSession, reason: Int) = Unit
+        override fun onSessionResumeFailed(session: CastSession, error: Int) {
+            currentSession = null
+            currentLoadedMediaId = null
+        }
+        override fun onSessionSuspended(session: CastSession, reason: Int) {
+            currentSession = null
+            currentLoadedMediaId = null
+        }
     }
 
     init {
@@ -52,6 +82,73 @@ class CastHandler private constructor(context: Context) {
             sessionListener,
             CastSession::class.java,
         )
+
+        playbackCoordinator.addListener(
+            PlaybackListener(
+                playbackSyncListenerId,
+                ListenerType.CAST_SESSION,
+                ::handlePlaybackStateChange,
+            ),
+        )
+    }
+
+    fun handlePlaybackStateChange(state: PlaybackSessionState) {
+        launchUI {
+            if (!isConnected()) return@launchUI
+
+            if (currentLoadedMediaId != state.mediaId) {
+                logcat { "Handler trigger: ${state.mediaId}. Attempting to load the video!" }
+                currentLoadedMediaId = state.mediaId
+                loadVideo(
+                    originalUrl = state.mediaId,
+                )
+            } else {
+                // The video is already loaded! 
+                // Here we can sync playback state (play/pause/seek) without reloading the entire video.
+            }
+        }
+    }
+
+    fun loadVideo(
+        originalUrl: String,
+        headers: Map<String, String> = emptyMap(),
+        title: String = "Aniyomi Video",
+    ) {
+        val session = currentSession ?: return
+        val remoteMediaClient = session.remoteMediaClient ?: return
+
+        // Determine correct MIME type (Chromecast relies heavily on this)
+        val lowerUrl = originalUrl.lowercase()
+        val mimeType = when {
+            lowerUrl.endsWith(".mkv") -> "video/x-matroska"
+            lowerUrl.endsWith(".webm") -> "video/webm"
+            lowerUrl.endsWith(".m3u8") -> "application/x-mpegURL"
+            else -> "video/mp4"
+        }
+
+        // 1. Get the local proxy URL to bypass CORS and add custom headers
+        val proxiedUrl = CastProxyServer.proxiedUrl(applicationContext, originalUrl, headers)
+
+        // 2. Build the MediaMetadata
+        val movieMetadata = MediaMetadata(MediaMetadata.MEDIA_TYPE_MOVIE).apply {
+            putString(MediaMetadata.KEY_TITLE, proxiedUrl)
+        }
+
+        // 3. Build the MediaInfo
+        val mediaInfo = MediaInfo.Builder(proxiedUrl)
+            .setStreamType(MediaInfo.STREAM_TYPE_BUFFERED)
+            .setContentType(mimeType)
+            .setMetadata(movieMetadata)
+            .build()
+
+        // 4. Create the Load Request
+        val requestData = MediaLoadRequestData.Builder()
+            .setMediaInfo(mediaInfo)
+            .setAutoplay(true)
+            .build()
+
+        // 5. Load the video onto the receiver
+        remoteMediaClient.load(requestData)
     }
 
     fun registerCallback(callback: MediaRouter.Callback) {
@@ -98,7 +195,7 @@ class CastHandler private constructor(context: Context) {
     }
 
     fun isConnected(): Boolean {
-        return castMediaServer.isReady()
+        return currentSession?.isConnected == true
     }
 
     companion object {

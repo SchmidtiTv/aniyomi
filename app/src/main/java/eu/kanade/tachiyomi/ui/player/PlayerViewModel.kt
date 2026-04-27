@@ -1733,7 +1733,7 @@ class PlayerViewModel @JvmOverloads constructor(
     }
 
     private fun currentPlaybackMediaId(): String? {
-        return currentEpisode.value?.id?.toString() ?: currentVideo.value?.videoUrl
+        return currentVideo.value?.videoUrl ?: currentEpisode.value?.id?.toString()
     }
 
     private fun currentPlaybackState(): PlaybackState {

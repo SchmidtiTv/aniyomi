@@ -15,6 +15,7 @@ import eu.kanade.tachiyomi.ui.player.sync.ListenerType
 import eu.kanade.tachiyomi.ui.player.sync.PlaybackListener
 import eu.kanade.tachiyomi.ui.player.sync.PlaybackSessionState
 import eu.kanade.tachiyomi.ui.player.sync.PlaybackSyncCoordinator
+import eu.kanade.tachiyomi.util.cast.proxy.Server
 import tachiyomi.core.common.util.lang.launchUI
 import tachiyomi.core.common.util.system.logcat
 import java.util.UUID
@@ -45,19 +46,19 @@ class CastHandler private constructor(context: Context) {
         override fun onSessionStarted(session: CastSession, sessionId: String) {
             currentSession = session
             currentLoadedMediaId = null
-            CastProxyServer.start(applicationContext)
+            Server.start(applicationContext)
         }
 
         override fun onSessionResumed(session: CastSession, wasSuspended: Boolean) {
             currentSession = session
             currentLoadedMediaId = null
-            CastProxyServer.start(applicationContext)
+            Server.start(applicationContext)
         }
 
         override fun onSessionEnded(session: CastSession, error: Int) {
             currentSession = null
             currentLoadedMediaId = null
-            CastProxyServer.stop()
+            Server.stop()
         }
 
         override fun onSessionResuming(session: CastSession, sessionId: String) = Unit
@@ -103,7 +104,7 @@ class CastHandler private constructor(context: Context) {
                     originalUrl = state.mediaId,
                 )
             } else {
-                // The video is already loaded! 
+                // The video is already loaded!
                 // Here we can sync playback state (play/pause/seek) without reloading the entire video.
             }
         }
@@ -117,7 +118,6 @@ class CastHandler private constructor(context: Context) {
         val session = currentSession ?: return
         val remoteMediaClient = session.remoteMediaClient ?: return
 
-        // Determine correct MIME type (Chromecast relies heavily on this)
         val lowerUrl = originalUrl.lowercase()
         val mimeType = when {
             lowerUrl.endsWith(".mkv") -> "video/x-matroska"
@@ -126,28 +126,23 @@ class CastHandler private constructor(context: Context) {
             else -> "video/mp4"
         }
 
-        // 1. Get the local proxy URL to bypass CORS and add custom headers
-        val proxiedUrl = CastProxyServer.proxiedUrl(applicationContext, originalUrl, headers)
+        val proxiedUrl = Server.proxiedUrl(applicationContext, originalUrl, headers)
 
-        // 2. Build the MediaMetadata
         val movieMetadata = MediaMetadata(MediaMetadata.MEDIA_TYPE_MOVIE).apply {
-            putString(MediaMetadata.KEY_TITLE, proxiedUrl)
+            putString(MediaMetadata.KEY_TITLE, title)
         }
 
-        // 3. Build the MediaInfo
         val mediaInfo = MediaInfo.Builder(proxiedUrl)
             .setStreamType(MediaInfo.STREAM_TYPE_BUFFERED)
             .setContentType(mimeType)
             .setMetadata(movieMetadata)
             .build()
 
-        // 4. Create the Load Request
         val requestData = MediaLoadRequestData.Builder()
             .setMediaInfo(mediaInfo)
             .setAutoplay(true)
             .build()
 
-        // 5. Load the video onto the receiver
         remoteMediaClient.load(requestData)
     }
 

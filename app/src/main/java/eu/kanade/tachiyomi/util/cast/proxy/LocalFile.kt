@@ -163,7 +163,7 @@ private data class ByteRange(
     val length: Long = end - start + 1
 
     fun isValidFor(fileSize: Long): Boolean {
-        return start >= 0 && end >= start && end < fileSize
+        return start in 0..end && end < fileSize
     }
 
     fun toContentRangeHeader(fileSize: Long): String {

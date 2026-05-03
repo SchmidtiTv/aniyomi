@@ -11,14 +11,28 @@ import com.google.android.gms.cast.framework.CastContext
 import com.google.android.gms.cast.framework.CastSession
 import com.google.android.gms.cast.framework.Session
 import com.google.android.gms.cast.framework.SessionManagerListener
+import eu.kanade.tachiyomi.animesource.model.Video
+import eu.kanade.tachiyomi.data.database.models.anime.Episode
 import eu.kanade.tachiyomi.ui.player.sync.ListenerType
+import eu.kanade.tachiyomi.ui.player.sync.LoadedVideoEvent
+import eu.kanade.tachiyomi.ui.player.sync.PlaybackCommand
+import eu.kanade.tachiyomi.ui.player.sync.PlaybackCommandType
 import eu.kanade.tachiyomi.ui.player.sync.PlaybackListener
 import eu.kanade.tachiyomi.ui.player.sync.PlaybackSessionState
 import eu.kanade.tachiyomi.ui.player.sync.PlaybackSyncCoordinator
+import eu.kanade.tachiyomi.ui.player.sync.SyncOrigin
+import eu.kanade.tachiyomi.ui.player.sync.VideoType
 import eu.kanade.tachiyomi.util.cast.proxy.Server
+import kotlinx.coroutines.DelicateCoroutinesApi
 import tachiyomi.core.common.util.lang.launchUI
 import tachiyomi.core.common.util.system.logcat
 import java.util.UUID
+
+data class CurrentVideo(
+    val videoID: String,
+    val videoTitle: String,
+    val videoUrl: String,
+)
 
 class CastHandler private constructor(context: Context) {
     private val applicationContext: Context = context.applicationContext
@@ -28,7 +42,7 @@ class CastHandler private constructor(context: Context) {
     private val playbackCoordinator = PlaybackSyncCoordinator.getInstance()
 
     private var currentSession: CastSession? = null
-    private var currentLoadedMediaId: String? = null
+    private var activeMedia: CurrentVideo? = null
 
     val mediaRouter: MediaRouter = MediaRouter.getInstance(applicationContext)
 
@@ -45,19 +59,19 @@ class CastHandler private constructor(context: Context) {
     private val sessionListener = object : SessionManagerListener<CastSession> {
         override fun onSessionStarted(session: CastSession, sessionId: String) {
             currentSession = session
-            currentLoadedMediaId = null
+            activeMedia = null
             Server.start(applicationContext)
         }
 
         override fun onSessionResumed(session: CastSession, wasSuspended: Boolean) {
             currentSession = session
-            currentLoadedMediaId = null
+            activeMedia = null
             Server.start(applicationContext)
         }
 
         override fun onSessionEnded(session: CastSession, error: Int) {
             currentSession = null
-            currentLoadedMediaId = null
+            activeMedia = null
             Server.stop()
         }
 
@@ -65,16 +79,18 @@ class CastHandler private constructor(context: Context) {
         override fun onSessionStarting(session: CastSession) = Unit
         override fun onSessionStartFailed(session: CastSession, error: Int) {
             currentSession = null
-            currentLoadedMediaId = null
+            activeMedia = null
         }
+
         override fun onSessionEnding(session: CastSession) = Unit
         override fun onSessionResumeFailed(session: CastSession, error: Int) {
             currentSession = null
-            currentLoadedMediaId = null
+            activeMedia = null
         }
+
         override fun onSessionSuspended(session: CastSession, reason: Int) {
             currentSession = null
-            currentLoadedMediaId = null
+            activeMedia = null
         }
     }
 
@@ -88,24 +104,75 @@ class CastHandler private constructor(context: Context) {
             PlaybackListener(
                 playbackSyncListenerId,
                 ListenerType.CAST_SESSION,
-                ::handlePlaybackStateChange,
+                ::handleCommand,
             ),
         )
     }
 
-    fun handlePlaybackStateChange(state: PlaybackSessionState) {
+    private fun getCurrentVideo(media: LoadedVideoEvent<*>): CurrentVideo? {
+        return when (media.videoType) {
+            VideoType.VIDEO -> {
+                val video = media.video as? Video ?: return null
+                CurrentVideo(
+                    video.url,
+                    video.videoTitle,
+                    video.url,
+                )
+            }
+
+            VideoType.EPISODE -> {
+                val video = media.video as? Episode ?: return null
+                CurrentVideo(
+                    video.id.toString(),
+                    video.name,
+                    video.url,
+                )
+            }
+        }
+    }
+
+    @OptIn(DelicateCoroutinesApi::class)
+    fun handleCommand(command: PlaybackCommand<*>) {
         launchUI {
             if (!isConnected()) return@launchUI
+            if (command.origin == SyncOrigin.CAST) return@launchUI
 
-            if (currentLoadedMediaId != state.mediaId) {
-                logcat { "Handler trigger: ${state.mediaId}. Attempting to load the video!" }
-                currentLoadedMediaId = state.mediaId
-                loadVideo(
-                    originalUrl = state.mediaId,
-                )
-            } else {
-                // The video is already loaded!
-                // Here we can sync playback state (play/pause/seek) without reloading the entire video.
+            when (command.commandType) {
+                PlaybackCommandType.LOAD_MEDIA -> {
+                    val media = command.newValue as? LoadedVideoEvent<*> ?: return@launchUI
+                    val newCurrentVideo = getCurrentVideo(media) ?: return@launchUI
+
+                    logcat { "CastHandler: Processing video event for ${media.videoType} | Current Video ${activeMedia.toString()} | Build media: ${newCurrentVideo.toString()} " }
+
+                    if (activeMedia?.videoID == newCurrentVideo.videoID)
+                        return@launchUI
+
+                    activeMedia = newCurrentVideo
+
+                    loadVideo(
+                        originalUrl = newCurrentVideo.videoUrl,
+                        title = newCurrentVideo.videoTitle,
+                    )
+                }
+
+                PlaybackCommandType.SYNC_STATE -> {
+                    val state = command.newValue as? PlaybackSessionState ?: return@launchUI
+                    val newCurrentVideo = getCurrentVideo(state.media) ?: return@launchUI
+
+                    if (activeMedia?.videoID != newCurrentVideo.videoID) {
+                        logcat { "CastHandler: Handler trigger: ${newCurrentVideo.videoUrl}. Attempting to load the video!" }
+                        activeMedia = newCurrentVideo
+                        loadVideo(
+                            originalUrl = newCurrentVideo.videoUrl,
+                            title = newCurrentVideo.videoTitle,
+                        )
+                    }
+                }
+
+                else -> {
+                    // The video is already loaded!
+                    // Here we can sync playback state (play/pause/seek) without reloading the entire video.
+                }
             }
         }
     }

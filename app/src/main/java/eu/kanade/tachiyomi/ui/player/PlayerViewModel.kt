@@ -74,14 +74,16 @@ import eu.kanade.tachiyomi.ui.player.loader.HosterLoader
 import eu.kanade.tachiyomi.ui.player.settings.GesturePreferences
 import eu.kanade.tachiyomi.ui.player.settings.PlayerPreferences
 import eu.kanade.tachiyomi.ui.player.sync.ListenerType
+import eu.kanade.tachiyomi.ui.player.sync.LoadedVideoEvent
 import eu.kanade.tachiyomi.ui.player.sync.PlaybackEvent
 import eu.kanade.tachiyomi.ui.player.sync.PlaybackEventType
 import eu.kanade.tachiyomi.ui.player.sync.PlaybackListener
 import eu.kanade.tachiyomi.ui.player.sync.PlaybackState
-import eu.kanade.tachiyomi.ui.player.sync.PlaybackSyncState
 import eu.kanade.tachiyomi.ui.player.sync.PlaybackSyncCoordinator
+import eu.kanade.tachiyomi.ui.player.sync.PlaybackSyncState
 import eu.kanade.tachiyomi.ui.player.sync.PlaybackTrackSelection
 import eu.kanade.tachiyomi.ui.player.sync.SyncOrigin
+import eu.kanade.tachiyomi.ui.player.sync.VideoType
 import eu.kanade.tachiyomi.ui.player.utils.AniSkipApi
 import eu.kanade.tachiyomi.ui.player.utils.ChapterUtils.Companion.getStringRes
 import eu.kanade.tachiyomi.ui.player.utils.TrackSelect
@@ -144,8 +146,8 @@ import java.io.InputStream
 import java.util.Date
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.math.abs
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.math.abs
 
 class PlayerViewModelProviderFactory(
     private val activity: PlayerActivity,
@@ -340,7 +342,7 @@ class PlayerViewModel @JvmOverloads constructor(
                     PlaybackListener(
                         playbackSyncListenerId,
                         ListenerType.LOCAL_PLAYER,
-                        ::applyCoordinatorState,
+                        ::handleCommand,
                     ),
                 )
                 publishLocalPlaybackSyncState()
@@ -640,7 +642,10 @@ class PlayerViewModel @JvmOverloads constructor(
         }
     }
 
-    fun pause(commandId: String = UUID.randomUUID().toString(), publishEvent: Boolean = !applyingCoordinatorState.get()) {
+    fun pause(
+        commandId: String = UUID.randomUUID().toString(),
+        publishEvent: Boolean = !applyingCoordinatorState.get(),
+    ) {
         applyPauseState(
             paused = true,
             updatePlayer = true,
@@ -649,7 +654,10 @@ class PlayerViewModel @JvmOverloads constructor(
         )
     }
 
-    fun unpause(commandId: String = UUID.randomUUID().toString(), publishEvent: Boolean = !applyingCoordinatorState.get()) {
+    fun unpause(
+        commandId: String = UUID.randomUUID().toString(),
+        publishEvent: Boolean = !applyingCoordinatorState.get(),
+    ) {
         applyPauseState(
             paused = false,
             updatePlayer = true,
@@ -1343,7 +1351,10 @@ class PlayerViewModel @JvmOverloads constructor(
                 publishLocalPlaybackSyncState(commandId)
                 emitPlaybackCommand(
                     eventType = PlaybackEventType.LOAD_MEDIA,
-                    newValue = episode.id?.toString(),
+                    newValue = LoadedVideoEvent(
+                        VideoType.EPISODE,
+                        episode,
+                    ),
                     commandId = commandId,
                 )
 
@@ -1582,9 +1593,13 @@ class PlayerViewModel @JvmOverloads constructor(
         _currentVideo.update { _ -> resolvedVideo }
         val commandId = UUID.randomUUID().toString()
         publishLocalPlaybackSyncState(commandId)
+
         emitPlaybackCommand(
             eventType = PlaybackEventType.LOAD_MEDIA,
-            newValue = resolvedVideo.videoUrl,
+            newValue = LoadedVideoEvent(
+                VideoType.VIDEO,
+                resolvedVideo,
+            ),
             commandId = commandId,
         )
 
@@ -1669,7 +1684,10 @@ class PlayerViewModel @JvmOverloads constructor(
         publishLocalPlaybackSyncState(commandId)
         emitPlaybackCommand(
             eventType = PlaybackEventType.LOAD_MEDIA,
-            newValue = chosenEpisode.id?.toString(),
+            newValue = LoadedVideoEvent(
+                VideoType.EPISODE,
+                chosenEpisode,
+            ),
             commandId = commandId,
         )
         updateEpisode(chosenEpisode)
@@ -1732,6 +1750,14 @@ class PlayerViewModel @JvmOverloads constructor(
         }
     }
 
+    private fun currentPlaybackMedia(): LoadedVideoEvent<*>? {
+        return currentVideo.value?.let { video ->
+            LoadedVideoEvent(VideoType.VIDEO, video)
+        } ?: currentEpisode.value?.let { episode ->
+            LoadedVideoEvent(VideoType.EPISODE, episode)
+        }
+    }
+
     private fun currentPlaybackMediaId(): String? {
         return currentVideo.value?.videoUrl ?: currentEpisode.value?.id?.toString()
     }
@@ -1774,12 +1800,13 @@ class PlayerViewModel @JvmOverloads constructor(
     private fun publishLocalPlaybackSyncState(commandId: String? = null) {
         if (applyingCoordinatorState.get()) return
 
-        val mediaId = currentPlaybackMediaId() ?: return
-        val currentRevision = _playbackSyncCoordinator.getCurrentSyncState()?.revision ?: 0L
-        localPlaybackRevision = maxOf(localPlaybackRevision, currentRevision) + 1
-        _playbackSyncCoordinator.updateState(
-            PlaybackSyncState(
-                mediaId = mediaId,
+        val media = currentPlaybackMedia() ?: return
+        localPlaybackRevision += 1
+
+        emitPlaybackCommand(
+            eventType = PlaybackEventType.SYNC_STATE,
+            newValue = PlaybackSyncState(
+                media = media,
                 playWhenReady = !paused.value,
                 positionMs = (pos.value * 1000).toLong(),
                 durationMs = duration.value.takeIf { it > 0f }?.let { (it * 1000).toLong() },
@@ -1791,43 +1818,85 @@ class PlayerViewModel @JvmOverloads constructor(
                 updatedAtMs = System.currentTimeMillis(),
                 lastCommandId = commandId,
             ),
+            commandId = commandId ?: UUID.randomUUID().toString(),
         )
     }
 
-    private fun applyCoordinatorState(state: PlaybackSyncState) {
-        if (state.origin == SyncOrigin.LOCAL) return
-        if (state.lastCommandId != null && state.lastCommandId == lastAppliedCoordinatorCommandId) return
+    private fun handleCommand(command: PlaybackEvent<*>) {
+        if (command.origin == SyncOrigin.LOCAL) return
+        if (command.commandId == lastAppliedCoordinatorCommandId) return
 
-        val currentMediaId = currentPlaybackMediaId() ?: return
-        if (state.mediaId != currentMediaId) return
-
-        applyingCoordinatorState.set(true)
-        try {
-            localPlaybackRevision = maxOf(localPlaybackRevision, state.revision)
-            state.durationMs?.let { syncedDurationMs ->
-                duration.update { syncedDurationMs / 1000f }
+        when (command.commandType) {
+            PlaybackEventType.REQUEST_FULL_STATE -> {
+                publishLocalPlaybackSyncState()
             }
 
-            val targetPositionSeconds = (state.positionMs / 1000L).toInt()
-            if (abs(pos.value - targetPositionSeconds) >= 1f) {
+            PlaybackEventType.SYNC_STATE -> {
+                val state = command.newValue as? PlaybackSyncState ?: return
+
+                val stateMediaId = when (state.media.videoType) {
+                    VideoType.VIDEO -> (state.media.video as? Video)?.videoUrl
+                    VideoType.EPISODE -> (state.media.video as? Episode)?.id?.toString()
+                }
+                if (stateMediaId == null || stateMediaId != currentPlaybackMediaId()) return
+
+                applyingCoordinatorState.set(true)
+                try {
+                    localPlaybackRevision = maxOf(localPlaybackRevision, state.revision)
+                    state.durationMs?.let { syncedDurationMs ->
+                        duration.update { syncedDurationMs / 1000f }
+                    }
+
+                    val targetPositionSeconds = (state.positionMs / 1000L).toInt()
+                    if (abs(pos.value - targetPositionSeconds) >= 1f) {
+                        seekTo(targetPositionSeconds)
+                        _pos.update { targetPositionSeconds.toFloat() }
+                    }
+
+                    if (abs(playbackSpeed.value - state.playbackSpeed) >= 0.01f) {
+                        MPVLib.setPropertyDouble("speed", state.playbackSpeed.toDouble())
+                        playbackSpeed.update { state.playbackSpeed }
+                    }
+
+                    if (state.playWhenReady) {
+                        unpause(commandId = state.lastCommandId ?: UUID.randomUUID().toString(), publishEvent = false)
+                    } else {
+                        pause(commandId = state.lastCommandId ?: UUID.randomUUID().toString(), publishEvent = false)
+                    }
+
+                    lastAppliedCoordinatorCommandId = state.lastCommandId
+                } finally {
+                    applyingCoordinatorState.set(false)
+                }
+            }
+
+            PlaybackEventType.PLAY -> {
+                applyingCoordinatorState.set(true)
+                unpause(commandId = command.commandId, publishEvent = false)
+                lastAppliedCoordinatorCommandId = command.commandId
+                applyingCoordinatorState.set(false)
+            }
+
+            PlaybackEventType.PAUSE -> {
+                applyingCoordinatorState.set(true)
+                pause(commandId = command.commandId, publishEvent = false)
+                lastAppliedCoordinatorCommandId = command.commandId
+                applyingCoordinatorState.set(false)
+            }
+
+            PlaybackEventType.SEEK_TO -> {
+                val positionMs = command.newValue as? Long ?: return
+                applyingCoordinatorState.set(true)
+                val targetPositionSeconds = (positionMs / 1000L).toInt()
                 seekTo(targetPositionSeconds)
                 _pos.update { targetPositionSeconds.toFloat() }
+                lastAppliedCoordinatorCommandId = command.commandId
+                applyingCoordinatorState.set(false)
             }
 
-            if (abs(playbackSpeed.value - state.playbackSpeed) >= 0.01f) {
-                MPVLib.setPropertyDouble("speed", state.playbackSpeed.toDouble())
-                playbackSpeed.update { state.playbackSpeed }
+            else -> {
+                logcat { "Received Event, which couldn't be resolved: ${command.commandType}" }
             }
-
-            if (state.playWhenReady) {
-                unpause(commandId = state.lastCommandId ?: UUID.randomUUID().toString(), publishEvent = false)
-            } else {
-                pause(commandId = state.lastCommandId ?: UUID.randomUUID().toString(), publishEvent = false)
-            }
-
-            lastAppliedCoordinatorCommandId = state.lastCommandId
-        } finally {
-            applyingCoordinatorState.set(false)
         }
     }
 

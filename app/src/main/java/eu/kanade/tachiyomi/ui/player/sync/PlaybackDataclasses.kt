@@ -21,16 +21,18 @@ enum class PlaybackCommandType {
     SET_SPEED,                  // Triggered when the playback speed is changed. The newValue is the new speed (e.g., 1.0 for normal speed).
     SET_TRACK_SELECTION,        // Triggered when the user changes audio or subtitle tracks. The newValue is a PlaybackTrackSelection object containing the selected track IDs.
     STOP,                       // Triggered when playback is stopped, e.g The player gets closed.
+    REQUEST_FULL_STATE,         // Triggered by a late-joiner (like UI) asking for the current state.
+    SYNC_STATE,                 // Triggered by the active player in response to REQUEST_FULL_STATE. The newValue is a PlaybackSessionState object.
 }
 
 data class PlaybackSessionListener(
     val listenerId: String,
     val listenerType: ListenerType,
-    val callback: (PlaybackSessionState) -> Unit,
+    val callback: (PlaybackCommand<*>) -> Unit,
 )
 
 data class PlaybackSessionState(
-    val mediaId: String,
+    val media: LoadedVideoEvent<*>,
     val playWhenReady: Boolean,
     val positionMs: Long,
     val durationMs: Long?,
@@ -42,6 +44,16 @@ data class PlaybackSessionState(
     val updatedAtMs: Long,
     val lastCommandId: String? = null,
 )
+
+data class LoadedVideoEvent<T>(
+    val videoType: VideoType,
+    val video: T
+)
+
+enum class VideoType {
+    EPISODE,
+    VIDEO
+}
 
 enum class PlaybackState { IDLE, BUFFERING, READY, ENDED }
 

@@ -73,6 +73,10 @@ import eu.kanade.tachiyomi.ui.player.loader.EpisodeLoader
 import eu.kanade.tachiyomi.ui.player.loader.HosterLoader
 import eu.kanade.tachiyomi.ui.player.settings.GesturePreferences
 import eu.kanade.tachiyomi.ui.player.settings.PlayerPreferences
+import eu.kanade.tachiyomi.ui.player.sync.PlaybackEvent
+import eu.kanade.tachiyomi.ui.player.sync.PlaybackEventType
+import eu.kanade.tachiyomi.ui.player.sync.PlaybackSyncCoordinator
+import eu.kanade.tachiyomi.ui.player.sync.SyncOrigin
 import eu.kanade.tachiyomi.ui.player.utils.AniSkipApi
 import eu.kanade.tachiyomi.ui.player.utils.ChapterUtils.Companion.getStringRes
 import eu.kanade.tachiyomi.ui.player.utils.TrackSelect
@@ -133,6 +137,7 @@ import uy.kohesive.injekt.api.get
 import java.io.File
 import java.io.InputStream
 import java.util.Date
+import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.cancellation.CancellationException
 
@@ -170,6 +175,8 @@ class PlayerViewModel @JvmOverloads constructor(
     private val libraryPreferences: LibraryPreferences = Injekt.get(),
     uiPreferences: UiPreferences = Injekt.get(),
 ) : ViewModel() {
+    private val _playbackSyncCoordinator = PlaybackSyncCoordinator.getInstance()
+
 
     private val _currentPlaylist = MutableStateFlow<List<Episode>>(emptyList())
     val currentPlaylist = _currentPlaylist.asStateFlow()
@@ -1595,6 +1602,22 @@ class PlayerViewModel @JvmOverloads constructor(
                 source = source,
             )
         }
+    }
+
+    private fun <T> emitPlaybackCommand(
+        eventType: PlaybackEventType,
+        newValue: T,
+        commandId: String = UUID.randomUUID().toString(),
+    ) {
+        _playbackSyncCoordinator.addEvent(
+            PlaybackEvent(
+                commandId = commandId,
+                eventTime = System.currentTimeMillis(),
+                commandType = eventType,
+                newValue = newValue,
+                origin = SyncOrigin.LOCAL,
+            ),
+        )
     }
 
     /**

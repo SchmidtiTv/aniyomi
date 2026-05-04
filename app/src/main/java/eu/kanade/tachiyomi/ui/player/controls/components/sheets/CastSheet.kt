@@ -114,7 +114,7 @@ fun CastSheet(
                 verticalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small),
             ) {
                 discoveredCastDevices.forEach { route ->
-                    val isSelected = route.id == selectedRouteId
+                    val isSelected = castHandler.isCurrentRoute(route)
 
                     CastEntry(
                         route = route,

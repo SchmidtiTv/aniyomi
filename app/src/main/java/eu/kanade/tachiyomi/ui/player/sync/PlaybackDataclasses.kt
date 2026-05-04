@@ -39,10 +39,6 @@ data class PlaybackSessionState(
     val playbackState: PlaybackState,
     val playbackSpeed: Float = 1f,
     val trackSelection: PlaybackTrackSelection? = null,
-    val origin: SyncOrigin,
-    val revision: Long,
-    val updatedAtMs: Long,
-    val lastCommandId: String? = null,
 )
 
 data class LoadedVideoEvent<T>(

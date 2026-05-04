@@ -18,8 +18,8 @@ import eu.kanade.tachiyomi.ui.player.sync.LoadedVideoEvent
 import eu.kanade.tachiyomi.ui.player.sync.PlaybackCommand
 import eu.kanade.tachiyomi.ui.player.sync.PlaybackCommandType
 import eu.kanade.tachiyomi.ui.player.sync.PlaybackListener
-import eu.kanade.tachiyomi.ui.player.sync.PlaybackSessionState
 import eu.kanade.tachiyomi.ui.player.sync.PlaybackSyncCoordinator
+import eu.kanade.tachiyomi.ui.player.sync.PlaybackSyncState
 import eu.kanade.tachiyomi.ui.player.sync.SyncOrigin
 import eu.kanade.tachiyomi.ui.player.sync.VideoType
 import eu.kanade.tachiyomi.util.cast.proxy.Server
@@ -56,18 +56,27 @@ class CastHandler private constructor(context: Context) {
             .build()
 
     // --- Callbacks
-    private val sessionListener = object : SessionManagerListener<CastSession> {
-        override fun onSessionStarted(session: CastSession, sessionId: String) {
-            currentSession = session
-            activeMedia = null
-            Server.start(applicationContext)
-        }
 
-        override fun onSessionResumed(session: CastSession, wasSuspended: Boolean) {
-            currentSession = session
-            activeMedia = null
-            Server.start(applicationContext)
-        }
+    private fun whenNewSession(session: CastSession) {
+        currentSession = session
+        activeMedia = null
+        Server.start(applicationContext)
+
+        playbackCoordinator.addEvent(
+            PlaybackCommand(
+                commandId = UUID.randomUUID().toString(),
+                commandType = PlaybackCommandType.REQUEST_FULL_STATE,
+                eventTime = System.currentTimeMillis(),
+                origin = SyncOrigin.CAST,
+                newValue = null,
+            ),
+        )
+    }
+
+    private val sessionListener = object : SessionManagerListener<CastSession> {
+        override fun onSessionStarted(session: CastSession, sessionId: String) = whenNewSession(session)
+
+        override fun onSessionResumed(session: CastSession, wasSuspended: Boolean) = whenNewSession(session)
 
         override fun onSessionEnded(session: CastSession, error: Int) {
             currentSession = null
@@ -133,6 +142,20 @@ class CastHandler private constructor(context: Context) {
         }
     }
 
+    private fun whenCommandOpenVideo(media: LoadedVideoEvent<*>, newCurrentVideo: CurrentVideo) {
+        logcat { "CastHandler: Processing video event for ${media.videoType} | Current Video ${activeMedia.toString()} | Build media: ${newCurrentVideo.toString()} " }
+
+        if (activeMedia?.videoID == newCurrentVideo.videoID && activeMedia?.videoUrl == newCurrentVideo.videoUrl)
+            return
+
+        activeMedia = newCurrentVideo
+
+        loadVideo(
+            originalUrl = newCurrentVideo.videoUrl,
+            title = newCurrentVideo.videoTitle,
+        )
+    }
+
     @OptIn(DelicateCoroutinesApi::class)
     fun handleCommand(command: PlaybackCommand<*>) {
         launchUI {
@@ -143,18 +166,12 @@ class CastHandler private constructor(context: Context) {
                 PlaybackCommandType.LOAD_MEDIA -> {
                     val media = command.newValue as? LoadedVideoEvent<*> ?: return@launchUI
                     val newCurrentVideo = getCurrentVideo(media) ?: return@launchUI
-
-                    logcat { "CastHandler: Processing video event for ${media.videoType} | Current Video ${activeMedia.toString()} | Build media: ${newCurrentVideo.toString()} " }
-
-                    if (activeMedia?.videoID == newCurrentVideo.videoID && activeMedia?.videoUrl == newCurrentVideo.videoUrl)
-                        return@launchUI
-
-                    activeMedia = newCurrentVideo
-
-                    loadVideo(
-                        originalUrl = newCurrentVideo.videoUrl,
-                        title = newCurrentVideo.videoTitle,
-                    )
+                    whenCommandOpenVideo(media, newCurrentVideo)
+                }
+                PlaybackCommandType.SYNC_STATE -> {
+                    val states = command.newValue as? PlaybackSyncState ?: return@launchUI
+                    val newCurrentVideo = getCurrentVideo(states.media) ?: return@launchUI
+                    whenCommandOpenVideo(states.media, newCurrentVideo)
                 }
 
                 else -> {

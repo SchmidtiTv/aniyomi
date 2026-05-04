@@ -73,10 +73,18 @@ import eu.kanade.tachiyomi.ui.player.loader.EpisodeLoader
 import eu.kanade.tachiyomi.ui.player.loader.HosterLoader
 import eu.kanade.tachiyomi.ui.player.settings.GesturePreferences
 import eu.kanade.tachiyomi.ui.player.settings.PlayerPreferences
+import eu.kanade.tachiyomi.ui.player.sync.ListenerType
+import eu.kanade.tachiyomi.ui.player.sync.LoadedVideoEvent
+import eu.kanade.tachiyomi.ui.player.sync.PlaybackCommandType
 import eu.kanade.tachiyomi.ui.player.sync.PlaybackEvent
 import eu.kanade.tachiyomi.ui.player.sync.PlaybackEventType
+import eu.kanade.tachiyomi.ui.player.sync.PlaybackListener
+import eu.kanade.tachiyomi.ui.player.sync.PlaybackSessionState
+import eu.kanade.tachiyomi.ui.player.sync.PlaybackState
 import eu.kanade.tachiyomi.ui.player.sync.PlaybackSyncCoordinator
+import eu.kanade.tachiyomi.ui.player.sync.PlaybackTrackSelection
 import eu.kanade.tachiyomi.ui.player.sync.SyncOrigin
+import eu.kanade.tachiyomi.ui.player.sync.VideoType
 import eu.kanade.tachiyomi.ui.player.utils.AniSkipApi
 import eu.kanade.tachiyomi.ui.player.utils.ChapterUtils.Companion.getStringRes
 import eu.kanade.tachiyomi.ui.player.utils.TrackSelect
@@ -176,7 +184,7 @@ class PlayerViewModel @JvmOverloads constructor(
     uiPreferences: UiPreferences = Injekt.get(),
 ) : ViewModel() {
     private val _playbackSyncCoordinator = PlaybackSyncCoordinator.getInstance()
-
+    private val playbackSyncListenerId = "PlayerViewModel-${UUID.randomUUID()}"
 
     private val _currentPlaylist = MutableStateFlow<List<Episode>>(emptyList())
     val currentPlaylist = _currentPlaylist.asStateFlow()
@@ -325,6 +333,14 @@ class PlayerViewModel @JvmOverloads constructor(
                 }
                 activity.setupCustomButtons(buttons)
                 _customButtons.update { _ -> CustomButtonFetchState.Success(buttons.toImmutableList()) }
+
+                _playbackSyncCoordinator.addListener(
+                    PlaybackListener(
+                        playbackSyncListenerId,
+                        ListenerType.LOCAL_PLAYER,
+                        ::handleCommand,
+                    ),
+                )
 
             } catch (e: Exception) {
                 logcat(LogPriority.ERROR, e)
@@ -1086,6 +1102,7 @@ class PlayerViewModel @JvmOverloads constructor(
     }
 
     override fun onCleared() {
+        _playbackSyncCoordinator.removeListener(playbackSyncListenerId)
         if (currentEpisode.value != null) {
             saveWatchingProgress(currentEpisode.value!!)
             episodeToDownload?.let {
@@ -1602,6 +1619,67 @@ class PlayerViewModel @JvmOverloads constructor(
                 source = source,
             )
         }
+    }
+
+    private fun currentPlaybackMedia(): LoadedVideoEvent<*>? {
+        return currentVideo.value?.let { video ->
+            LoadedVideoEvent(VideoType.VIDEO, video)
+        } ?: currentEpisode.value?.let { episode ->
+            LoadedVideoEvent(VideoType.EPISODE, episode)
+        }
+    }
+
+    private fun currentPlaybackMediaId(): String? {
+        return currentVideo.value?.videoUrl ?: currentEpisode.value?.id?.toString()
+    }
+
+    private fun currentPlaybackState(): PlaybackState {
+        if (currentPlaybackMediaId() == null) return PlaybackState.IDLE
+        if (duration.value > 0f && pos.value >= duration.value) return PlaybackState.ENDED
+        if (isLoading.value) return PlaybackState.BUFFERING
+        return PlaybackState.READY
+    }
+
+    private fun currentTrackSelection(
+        audioTrackId: Int? = selectedAudio.value.takeIf { it != -1 },
+        subtitleTrackId: Int? = selectedSubtitles.value.first.takeIf { it != -1 },
+    ): PlaybackTrackSelection {
+        return PlaybackTrackSelection(
+            audioTrackId = audioTrackId,
+            subtitleTrackId = subtitleTrackId,
+        )
+    }
+
+    private fun handleCommand(command: PlaybackEvent<*>) {
+        if (command.origin == SyncOrigin.LOCAL) return
+
+        when (command.commandType) {
+            PlaybackCommandType.REQUEST_FULL_STATE -> {
+                val media = currentPlaybackMedia() ?: return
+
+                emitPlaybackCommand(
+                    eventType = PlaybackCommandType.SYNC_STATE,
+                    newValue = PlaybackSessionState(
+                        media = media,
+                        playWhenReady = !paused.value,
+                        positionMs = (pos.value * 1000).toLong(),
+                        durationMs = duration.value.takeIf { it > 0f }?.let { (it * 1000).toLong() },
+                        playbackState = currentPlaybackState(),
+                        playbackSpeed = playbackSpeed.value,
+                        trackSelection = currentTrackSelection(),
+                    ),
+                )
+            }
+
+            else -> {
+                logcat.logcat(
+                    "PlayerViewModel/handleCommand",
+                    LogPriority.WARN,
+                ) { "Received unhandled playback command: ${command.commandType} with value ${command.newValue}" }
+
+            }
+        }
+
     }
 
     private fun <T> emitPlaybackCommand(

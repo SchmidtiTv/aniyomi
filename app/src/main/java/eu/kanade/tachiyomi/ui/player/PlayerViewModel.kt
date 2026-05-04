@@ -651,10 +651,17 @@ class PlayerViewModel @JvmOverloads constructor(
         }
 
         _paused.update { paused }
+
+        if (paused) {
+            emitPlaybackCommand(PlaybackCommandType.PAUSE, null)
+        } else {
+            emitPlaybackCommand(PlaybackCommandType.PLAY, null)
+        }
     }
 
     fun stopPlayback() {
         MPVLib.command(arrayOf("stop"))
+        emitPlaybackCommand(PlaybackCommandType.STOP, null)
     }
 
     private val showStatusBar = playerPreferences.showSystemStatusBar().get()

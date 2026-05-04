@@ -24,6 +24,9 @@ import eu.kanade.tachiyomi.ui.player.sync.SyncOrigin
 import eu.kanade.tachiyomi.ui.player.sync.VideoType
 import eu.kanade.tachiyomi.util.cast.proxy.Server
 import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
+import logcat.LogPriority
 import tachiyomi.core.common.util.lang.launchUI
 import tachiyomi.core.common.util.system.logcat
 import java.util.UUID
@@ -43,6 +46,8 @@ class CastHandler private constructor(context: Context) {
 
     private var currentSession: CastSession? = null
     private var activeMedia: CurrentVideo? = null
+
+    private var playingState  = MutableStateFlow(false)
 
     val mediaRouter: MediaRouter = MediaRouter.getInstance(applicationContext)
 
@@ -162,21 +167,56 @@ class CastHandler private constructor(context: Context) {
             if (!isConnected()) return@launchUI
             if (command.origin == SyncOrigin.CAST) return@launchUI
 
+            val remoteMediaClient = currentSession?.remoteMediaClient ?: return@launchUI
+
             when (command.commandType) {
                 PlaybackCommandType.LOAD_MEDIA -> {
                     val media = command.newValue as? LoadedVideoEvent<*> ?: return@launchUI
                     val newCurrentVideo = getCurrentVideo(media) ?: return@launchUI
                     whenCommandOpenVideo(media, newCurrentVideo)
                 }
+
                 PlaybackCommandType.SYNC_STATE -> {
                     val states = command.newValue as? PlaybackSyncState ?: return@launchUI
                     val newCurrentVideo = getCurrentVideo(states.media) ?: return@launchUI
                     whenCommandOpenVideo(states.media, newCurrentVideo)
+
+                    playingState.update { states.playWhenReady }
+                    if (!states.playWhenReady)
+                        remoteMediaClient.pause()
+                }
+
+                PlaybackCommandType.PAUSE -> {
+                    playingState.update { false }
+                    remoteMediaClient.pause()
+                }
+
+                PlaybackCommandType.PLAY -> {
+                    playingState.update { true }
+                    remoteMediaClient.play()
+                }
+
+                PlaybackCommandType.STOP -> {
+                    playingState.update { false }
+                    remoteMediaClient.stop()
+                }
+
+                PlaybackCommandType.SET_SPEED -> {
+                    val speed = command.newValue as? Double ?: return@launchUI
+                    remoteMediaClient.setPlaybackRate(speed)
+                }
+
+                PlaybackCommandType.SEEK_TO -> {
+                    val position = command.newValue as? Long ?: return@launchUI
+                    remoteMediaClient.seek(position)
                 }
 
                 else -> {
-                    // The video is already loaded!
-                    // Here we can sync playback state (play/pause/seek) without reloading the entire video.
+                    logcat.logcat(
+                        "CastHandler/handleCommand",
+                        LogPriority.WARN,
+                    ) { "Received unhandled playback command: ${command.commandType} with value ${command.newValue}" }
+
                 }
             }
         }

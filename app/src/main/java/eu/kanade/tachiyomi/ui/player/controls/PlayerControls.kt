@@ -390,7 +390,7 @@ fun PlayerControls(
                             isSeeking = true
                             pendingTimelineSeek = it
                             viewModel.updatePlayBackPos(it)
-                            viewModel.seekTo(it.toInt(), preciseSeeking, publishEvent = false)
+                            viewModel.seekTo(it.toInt(), preciseSeeking)
                         },
                         onValueChangeFinished = {
                             pendingTimelineSeek?.let {

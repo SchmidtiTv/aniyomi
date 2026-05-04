@@ -113,10 +113,12 @@ class CastHandler private constructor(context: Context) {
         return when (media.videoType) {
             VideoType.VIDEO -> {
                 val video = media.video as? Video ?: return null
+                if (video.videoUrl.isEmpty()) return null
+
                 CurrentVideo(
-                    video.url,
-                    video.videoTitle,
-                    video.url,
+                    videoID = video.videoUrl ?: return null,   // content:// URI
+                    videoTitle = video.videoTitle,
+                    videoUrl = video.videoUrl ?: return null,
                 )
             }
 
@@ -144,7 +146,7 @@ class CastHandler private constructor(context: Context) {
 
                     logcat { "CastHandler: Processing video event for ${media.videoType} | Current Video ${activeMedia.toString()} | Build media: ${newCurrentVideo.toString()} " }
 
-                    if (activeMedia?.videoID == newCurrentVideo.videoID)
+                    if (activeMedia?.videoID == newCurrentVideo.videoID && activeMedia?.videoUrl == newCurrentVideo.videoUrl)
                         return@launchUI
 
                     activeMedia = newCurrentVideo
@@ -159,8 +161,8 @@ class CastHandler private constructor(context: Context) {
                     val state = command.newValue as? PlaybackSessionState ?: return@launchUI
                     val newCurrentVideo = getCurrentVideo(state.media) ?: return@launchUI
 
-                    if (activeMedia?.videoID != newCurrentVideo.videoID) {
-                        logcat { "CastHandler: Handler trigger: ${newCurrentVideo.videoUrl}. Attempting to load the video!" }
+                    if (activeMedia?.videoID != newCurrentVideo.videoID || activeMedia?.videoUrl != newCurrentVideo.videoUrl) {
+                        logcat { "CastHandler: Processing video event for ${state.media.videoType} | Current Video ${activeMedia.toString()} | Build media: ${newCurrentVideo.toString()} " }
                         activeMedia = newCurrentVideo
                         loadVideo(
                             originalUrl = newCurrentVideo.videoUrl,

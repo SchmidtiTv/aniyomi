@@ -70,13 +70,28 @@ object Server {
     }
 
     private fun getLocalIpAddress(): String {
-        NetworkInterface.getNetworkInterfaces().toList().forEach { networkInterface ->
-            networkInterface.inetAddresses.toList().forEach { address ->
-                if (!address.isLoopbackAddress && address is Inet4Address) {
-                    return address.hostAddress ?: "127.0.0.1"
-                }
+        NetworkInterface.getNetworkInterfaces()
+            ?.toList()
+            ?.filter { it.isUp && !it.isLoopback }
+            ?.flatMap { it.inetAddresses.toList() }
+            ?.firstOrNull { address ->
+                address is Inet4Address &&
+                    !address.isLoopbackAddress &&
+                    isLanAddress(address.address)
             }
-        }
+            ?.let { return (it as Inet4Address).hostAddress ?: "127.0.0.1" }
+
         return "127.0.0.1"
+    }
+
+    private fun isLanAddress(ip: ByteArray): Boolean {
+        val b0 = ip[0].toInt() and 0xFF
+        val b1 = ip[1].toInt() and 0xFF
+        return when {
+            b0 == 10 -> true  // 10.0.0.0/8
+            b0 == 172 && b1 in 16..31 -> true  // 172.16.0.0/12
+            b0 == 192 && b1 == 168 -> true  // 192.168.0.0/16
+            else -> false // excludes 100.x (CGNAT/Tailscale), etc.
+        }
     }
 }

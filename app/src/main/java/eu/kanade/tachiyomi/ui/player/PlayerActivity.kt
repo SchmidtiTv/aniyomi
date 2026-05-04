@@ -39,6 +39,7 @@ import android.media.session.PlaybackState
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.util.Log
 import android.util.Rational
 import android.view.KeyEvent
@@ -75,6 +76,12 @@ import eu.kanade.tachiyomi.ui.player.settings.AdvancedPlayerPreferences
 import eu.kanade.tachiyomi.ui.player.settings.AudioPreferences
 import eu.kanade.tachiyomi.ui.player.settings.GesturePreferences
 import eu.kanade.tachiyomi.ui.player.settings.PlayerPreferences
+import eu.kanade.tachiyomi.ui.player.sync.LoadedVideoEvent
+import eu.kanade.tachiyomi.ui.player.sync.PlaybackCommand
+import eu.kanade.tachiyomi.ui.player.sync.PlaybackCommandType
+import eu.kanade.tachiyomi.ui.player.sync.PlaybackSyncCoordinator
+import eu.kanade.tachiyomi.ui.player.sync.SyncOrigin
+import eu.kanade.tachiyomi.ui.player.sync.VideoType
 import eu.kanade.tachiyomi.ui.player.utils.ChapterUtils
 import eu.kanade.tachiyomi.ui.player.utils.ChapterUtils.Companion.getStringRes
 import eu.kanade.tachiyomi.util.system.powerManager
@@ -105,6 +112,7 @@ import uy.kohesive.injekt.api.get
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
+import java.util.UUID
 import kotlin.math.ceil
 import kotlin.math.floor
 
@@ -123,6 +131,7 @@ class PlayerActivity : BaseActivity() {
     private val advancedPlayerPreferences: AdvancedPlayerPreferences = Injekt.get()
     private val networkPreferences: NetworkPreferences = Injekt.get()
     private val storageManager: StorageManager = Injekt.get()
+    private val playbackCoordinator by lazy { PlaybackSyncCoordinator.getInstance() }
 
     private var audioFocusRequest: AudioFocusRequestCompat? = null
     private var restoreAudioFocus: () -> Unit = {}
@@ -1189,6 +1198,7 @@ class PlayerActivity : BaseActivity() {
         if (player.isExiting) return
         setMpvOptions()
         setMpvMediaTitle()
+        emitLoadedMediaEvent()
         setupPlayerOrientation()
         setupChapters()
         setupTracks()
@@ -1213,6 +1223,23 @@ class PlayerActivity : BaseActivity() {
                 }
             }
         }
+    }
+
+    private fun emitLoadedMediaEvent() {
+        val video = viewModel.currentVideo.value ?: return
+
+        playbackCoordinator.addEvent(
+            PlaybackCommand(
+                commandId = UUID.randomUUID().toString(),
+                eventTime = SystemClock.elapsedRealtime(),
+                commandType = PlaybackCommandType.LOAD_MEDIA,
+                newValue = LoadedVideoEvent(
+                    videoType = VideoType.VIDEO,
+                    video = video,
+                ),
+                origin = SyncOrigin.LOCAL,
+            ),
+        )
     }
 
     private fun setMpvOptions() {

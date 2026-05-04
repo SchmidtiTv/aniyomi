@@ -157,20 +157,6 @@ class CastHandler private constructor(context: Context) {
                     )
                 }
 
-                PlaybackCommandType.SYNC_STATE -> {
-                    val state = command.newValue as? PlaybackSessionState ?: return@launchUI
-                    val newCurrentVideo = getCurrentVideo(state.media) ?: return@launchUI
-
-                    if (activeMedia?.videoID != newCurrentVideo.videoID || activeMedia?.videoUrl != newCurrentVideo.videoUrl) {
-                        logcat { "CastHandler: Processing video event for ${state.media.videoType} | Current Video ${activeMedia.toString()} | Build media: ${newCurrentVideo.toString()} " }
-                        activeMedia = newCurrentVideo
-                        loadVideo(
-                            originalUrl = newCurrentVideo.videoUrl,
-                            title = newCurrentVideo.videoTitle,
-                        )
-                    }
-                }
-
                 else -> {
                     // The video is already loaded!
                     // Here we can sync playback state (play/pause/seek) without reloading the entire video.

@@ -1630,9 +1630,9 @@ class PlayerViewModel @JvmOverloads constructor(
 
     private fun currentPlaybackMedia(): LoadedVideoEvent<*>? {
         return currentVideo.value?.let { video ->
-            LoadedVideoEvent(VideoType.VIDEO, video)
+            LoadedVideoEvent(VideoType.VIDEO, video, animeTitle.value, mediaTitle.value)
         } ?: currentEpisode.value?.let { episode ->
-            LoadedVideoEvent(VideoType.EPISODE, episode)
+            LoadedVideoEvent(VideoType.EPISODE, episode, animeTitle.value, mediaTitle.value)
         }
     }
 

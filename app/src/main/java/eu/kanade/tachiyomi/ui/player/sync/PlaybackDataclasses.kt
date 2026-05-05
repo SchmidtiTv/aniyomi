@@ -43,7 +43,9 @@ data class PlaybackSessionState(
 
 data class LoadedVideoEvent<T>(
     val videoType: VideoType,
-    val video: T
+    val video: T,
+    val title: String,
+    val subtitle: String
 )
 
 enum class VideoType {

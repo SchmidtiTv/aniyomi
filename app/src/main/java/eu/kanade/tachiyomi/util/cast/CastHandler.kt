@@ -8,10 +8,12 @@ import com.google.android.gms.cast.MediaInfo
 import com.google.android.gms.cast.MediaLoadRequestData
 import com.google.android.gms.cast.MediaMetadata
 import com.google.android.gms.cast.MediaSeekOptions
+import com.google.android.gms.cast.MediaStatus
 import com.google.android.gms.cast.framework.CastContext
 import com.google.android.gms.cast.framework.CastSession
 import com.google.android.gms.cast.framework.Session
 import com.google.android.gms.cast.framework.SessionManagerListener
+import com.google.android.gms.cast.framework.media.RemoteMediaClient
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.data.database.models.anime.Episode
 import eu.kanade.tachiyomi.ui.player.sync.ListenerType
@@ -36,6 +38,7 @@ data class CurrentVideo(
     val videoId: String,
     val videoTitle: String,
     val videoUrl: String,
+    val videoSubTitle: String
 )
 
 class CastHandler private constructor(context: Context) {
@@ -67,6 +70,7 @@ class CastHandler private constructor(context: Context) {
         currentSession = session
         activeMedia = null
         Server.start(applicationContext)
+        session.remoteMediaClient?.registerCallback(remoteMediaListener)
 
         playbackCoordinator.addEvent(
             PlaybackCommand(
@@ -109,6 +113,29 @@ class CastHandler private constructor(context: Context) {
         }
     }
 
+    private val remoteMediaListener = object : RemoteMediaClient.Callback() {
+        private val remoteMediaClient = currentSession?.remoteMediaClient
+
+        override fun onStatusUpdated() {
+            val status = remoteMediaClient?.mediaStatus ?: return
+
+            var newState = PlaybackCommandType.PAUSE
+            if (status.playerState == MediaStatus.PLAYER_STATE_PLAYING)
+                newState = PlaybackCommandType.PLAY
+
+
+            playbackCoordinator.addEvent(
+                PlaybackCommand(
+                    commandId = UUID.randomUUID().toString(),
+                    commandType = newState,
+                    eventTime = System.currentTimeMillis(),
+                    origin = SyncOrigin.CAST,
+                    newValue = null,
+                ),
+            )
+        }
+    }
+
     init {
         castContext.sessionManager.addSessionManagerListener(
             sessionListener,
@@ -132,17 +159,19 @@ class CastHandler private constructor(context: Context) {
 
                 CurrentVideo(
                     videoId = video.videoUrl,
-                    videoTitle = video.videoTitle,
+                    videoTitle = media.title,
                     videoUrl = video.videoUrl,
+                    videoSubTitle = media.subtitle
                 )
             }
 
             VideoType.EPISODE -> {
                 val video = media.video as? Episode ?: return null
                 CurrentVideo(
-                    video.id.toString(),
-                    video.name,
-                    video.url,
+                    videoId = video.id.toString(),
+                    videoUrl = video.url,
+                    videoTitle = media.title,
+                    videoSubTitle = media.subtitle
                 )
             }
         }
@@ -159,6 +188,7 @@ class CastHandler private constructor(context: Context) {
         loadVideo(
             originalUrl = newCurrentVideo.videoUrl,
             title = newCurrentVideo.videoTitle,
+            subtitle = newCurrentVideo.videoSubTitle,
         )
     }
 
@@ -208,9 +238,9 @@ class CastHandler private constructor(context: Context) {
                 }
 
                 PlaybackCommandType.SEEK_TO -> {
-                    val position = command.newValue as? Long ?: return@launchUI
+                    val position = (command.newValue as? Number)?.toLong() ?: return@launchUI
                     MediaSeekOptions.Builder()
-                        .setPosition(position)
+                        .setPosition(position * 1000)
                         .build()
                         .let { remoteMediaClient.seek(it) }
                 }
@@ -230,6 +260,7 @@ class CastHandler private constructor(context: Context) {
         originalUrl: String,
         headers: Map<String, String> = emptyMap(),
         title: String = "Aniyomi Video",
+        subtitle: String = ""
     ) {
         val session = currentSession ?: return
         val remoteMediaClient = session.remoteMediaClient ?: return
@@ -246,6 +277,7 @@ class CastHandler private constructor(context: Context) {
 
         val movieMetadata = MediaMetadata(MediaMetadata.MEDIA_TYPE_MOVIE).apply {
             putString(MediaMetadata.KEY_TITLE, title)
+            putString(MediaMetadata.KEY_SUBTITLE, subtitle)
         }
 
         val mediaInfo = MediaInfo.Builder(proxiedUrl)

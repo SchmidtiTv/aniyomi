@@ -47,6 +47,7 @@ import android.view.View
 import android.view.WindowManager
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -711,6 +712,16 @@ class PlayerActivity : BaseActivity() {
             }
 
             "seeking" -> {
+                if (value)
+                    playbackCoordinator.addEvent(
+                        PlaybackCommand(
+                            commandId = UUID.randomUUID().toString(),
+                            eventTime = SystemClock.elapsedRealtime(),
+                            commandType = PlaybackCommandType.SEEK_TO,
+                            newValue = player.timePos,
+                            origin = SyncOrigin.LOCAL,
+                        ),
+                    )
                 viewModel.updatePlaybackLoadingState(value)
             }
 
@@ -745,7 +756,18 @@ class PlayerActivity : BaseActivity() {
     internal fun onObserverEvent(property: String, value: Double) {
         if (player.isExiting) return
         when (property) {
-            "speed" -> viewModel.updatePlaybackSpeed(value.toFloat())
+            "speed" -> {
+                viewModel.updatePlaybackSpeed(value.toFloat())
+                playbackCoordinator.addEvent(
+                    PlaybackCommand(
+                        commandId = UUID.randomUUID().toString(),
+                        eventTime = SystemClock.elapsedRealtime(),
+                        commandType = PlaybackCommandType.SET_SPEED,
+                        newValue = value,
+                        origin = SyncOrigin.LOCAL,
+                    ),
+                )
+            }
             "video-params/aspect" -> if (isPipSupportedAndEnabled) createPipParams()
         }
     }
@@ -1236,6 +1258,8 @@ class PlayerActivity : BaseActivity() {
                 newValue = LoadedVideoEvent(
                     videoType = VideoType.VIDEO,
                     video = video,
+                    title = viewModel.animeTitle.value,
+                    subtitle = viewModel.mediaTitle.value
                 ),
                 origin = SyncOrigin.LOCAL,
             ),

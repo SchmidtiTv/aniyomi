@@ -1,6 +1,7 @@
 package eu.kanade.tachiyomi.util.cast
 
 import android.content.Context
+import android.net.Uri
 import androidx.mediarouter.media.MediaRouteSelector
 import androidx.mediarouter.media.MediaRouter
 import com.google.android.gms.cast.CastMediaControlIntent
@@ -14,6 +15,7 @@ import com.google.android.gms.cast.framework.CastSession
 import com.google.android.gms.cast.framework.Session
 import com.google.android.gms.cast.framework.SessionManagerListener
 import com.google.android.gms.cast.framework.media.RemoteMediaClient
+import com.google.android.gms.common.images.WebImage
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.data.database.models.anime.Episode
 import eu.kanade.tachiyomi.ui.player.sync.ListenerType
@@ -32,13 +34,17 @@ import kotlinx.coroutines.flow.update
 import logcat.LogPriority
 import tachiyomi.core.common.util.lang.launchUI
 import tachiyomi.core.common.util.system.logcat
+import tachiyomi.domain.entries.anime.model.AnimeCover
+import tachiyomi.domain.entries.anime.model.asAnimeCover
 import java.util.UUID
+import androidx.core.net.toUri
 
 data class CurrentVideo(
     val videoId: String,
     val videoTitle: String,
     val videoUrl: String,
-    val videoSubTitle: String
+    val videoSubTitle: String,
+    val animeCover: AnimeCover? = null,
 )
 
 class CastHandler private constructor(context: Context) {
@@ -88,14 +94,9 @@ class CastHandler private constructor(context: Context) {
 
         override fun onSessionResumed(session: CastSession, wasSuspended: Boolean) = onNewSession(session)
 
-        override fun onSessionEnded(session: CastSession, error: Int) {
-            currentSession = null
-            activeMedia = null
-            Server.stop()
-        }
-
         override fun onSessionResuming(session: CastSession, sessionId: String) = Unit
         override fun onSessionStarting(session: CastSession) = Unit
+
         override fun onSessionStartFailed(session: CastSession, error: Int) {
             currentSession = null
             activeMedia = null
@@ -110,6 +111,12 @@ class CastHandler private constructor(context: Context) {
         override fun onSessionSuspended(session: CastSession, reason: Int) {
             currentSession = null
             activeMedia = null
+        }
+
+        override fun onSessionEnded(session: CastSession, error: Int) {
+            currentSession = null
+            activeMedia = null
+            Server.stop()
         }
     }
 
@@ -155,13 +162,15 @@ class CastHandler private constructor(context: Context) {
         return when (media.videoType) {
             VideoType.VIDEO -> {
                 val video = media.video as? Video ?: return null
+
                 if (video.videoUrl.isEmpty()) return null
 
                 CurrentVideo(
                     videoId = video.videoUrl,
                     videoTitle = media.title,
                     videoUrl = video.videoUrl,
-                    videoSubTitle = media.subtitle
+                    videoSubTitle = media.subtitle,
+                    animeCover = media.anime?.asAnimeCover(),
                 )
             }
 
@@ -171,7 +180,8 @@ class CastHandler private constructor(context: Context) {
                     videoId = video.id.toString(),
                     videoUrl = video.url,
                     videoTitle = media.title,
-                    videoSubTitle = media.subtitle
+                    videoSubTitle = media.subtitle,
+                    animeCover = media.anime?.asAnimeCover(),
                 )
             }
         }
@@ -189,6 +199,7 @@ class CastHandler private constructor(context: Context) {
             originalUrl = newCurrentVideo.videoUrl,
             title = newCurrentVideo.videoTitle,
             subtitle = newCurrentVideo.videoSubTitle,
+            animeCover = newCurrentVideo.animeCover,
         )
     }
 
@@ -260,7 +271,8 @@ class CastHandler private constructor(context: Context) {
         originalUrl: String,
         headers: Map<String, String> = emptyMap(),
         title: String = "Aniyomi Video",
-        subtitle: String = ""
+        subtitle: String = "",
+        animeCover: AnimeCover?,
     ) {
         val session = currentSession ?: return
         val remoteMediaClient = session.remoteMediaClient ?: return
@@ -275,9 +287,16 @@ class CastHandler private constructor(context: Context) {
 
         val proxiedUrl = Server.proxiedUrl(applicationContext, originalUrl, headers)
 
+        val coverUrl = animeCover?.url?.let { Server.hostImage(applicationContext, it) }
+        logcat { "Got coverUrl: $coverUrl" }
+
         val movieMetadata = MediaMetadata(MediaMetadata.MEDIA_TYPE_MOVIE).apply {
             putString(MediaMetadata.KEY_TITLE, title)
             putString(MediaMetadata.KEY_SUBTITLE, subtitle)
+            coverUrl?.let {
+                addImage(WebImage(it.toUri()))        // thumbnail (sender UI)
+                addImage(WebImage(it.toUri()))        // background (TV screen)
+            }
         }
 
         val mediaInfo = MediaInfo.Builder(proxiedUrl)

@@ -1,17 +1,25 @@
 package eu.kanade.tachiyomi.util.cast.proxy
 
 import android.content.Context
+import androidx.core.net.toUri
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
+import io.ktor.client.request.get
+import io.ktor.client.statement.readBytes
+import io.ktor.client.statement.readRawBytes
+import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.engine.EmbeddedServer
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.netty.Netty
 import io.ktor.server.netty.NettyApplicationEngine
 import io.ktor.server.response.respond
+import io.ktor.server.response.respondBytes
+import io.ktor.server.response.respondFile
 import io.ktor.server.routing.get
 import io.ktor.server.routing.routing
 import tachiyomi.core.common.util.system.logcat
+import java.io.File
 import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.net.URLEncoder
@@ -22,7 +30,6 @@ object Server {
 
     private var server: EmbeddedServer<NettyApplicationEngine, NettyApplicationEngine.Configuration>? = null
     private var activePort: Int = DEFAULT_PORT
-    private val headerStore = ConcurrentHashMap<String, Map<String, String>>()
     private val httpClient = HttpClient(OkHttp) {
         followRedirects = true
     }
@@ -36,7 +43,9 @@ object Server {
                 get("/proxy") {
                     val originalUrl = call.parameters["url"] ?: return@get call.respond(HttpStatusCode.BadRequest)
 
-                    val videoHeaders = getHeadersForUrl(originalUrl)
+                    val videoHeaders = call.parameters["headers"]
+                        ?.let(::decodeHeadersParam)
+                        ?: return@get call.respond(HttpStatusCode.BadRequest)
 
                     logcat { "Proxying request for URL: $originalUrl with headers: $videoHeaders" }
 
@@ -46,6 +55,25 @@ object Server {
                         call.handleRemoteStream(httpClient, originalUrl, videoHeaders)
                     }
                 }
+                get("/image") {
+                    val originalUrl = call.parameters["url"] ?: return@get call.respond(HttpStatusCode.BadRequest)
+
+                    logcat { "Hosting image for $originalUrl" }
+
+                    val bytes = if (originalUrl.startsWith("content://")) {
+                        // content:// URI — must use ContentResolver
+                        val uri = originalUrl.toUri()
+                        context.contentResolver.openInputStream(uri)?.readBytes()
+                            ?: return@get call.respond(HttpStatusCode.NotFound)
+                    } else if (originalUrl.startsWith("http://") || originalUrl.startsWith("https://")) {
+                        HttpClient().use { it.get(originalUrl).readRawBytes() }
+                    } else {
+                        File(originalUrl).takeIf { it.exists() }?.readBytes()
+                            ?: return@get call.respond(HttpStatusCode.NotFound)
+                    }
+
+                    call.respondBytes(bytes, ContentType.Image.JPEG)
+                }
             }
         }.start(wait = false)
     }
@@ -53,21 +81,21 @@ object Server {
     fun stop() {
         server?.stop(1000, 2000)
         server = null
-        headerStore.clear()
     }
 
     fun proxiedUrl(context: Context, originalUrl: String, headers: Map<String, String> = emptyMap()): String {
         start(context)
-        if (headers.isNotEmpty()) {
-            headerStore[originalUrl] = headers
-        }
         val encodedUrl = URLEncoder.encode(originalUrl, "UTF-8")
-        return "http://${getLocalIpAddress()}:$activePort/proxy?url=$encodedUrl"
+        val headersParam = if (headers.isNotEmpty()) "&headers=${headers.encodeAsParam()}" else ""
+        return "http://${getLocalIpAddress()}:$activePort/proxy?url=$encodedUrl$headersParam"
     }
 
-    private fun getHeadersForUrl(url: String): Map<String, String> {
-        return headerStore[url].orEmpty()
+    fun hostImage(context: Context, originalUrl: String): String {
+        start(context)
+        val encodedUrl = URLEncoder.encode(originalUrl, "UTF-8")
+        return "http://${getLocalIpAddress()}:$activePort/image?url=$encodedUrl"
     }
+
 
     private fun getLocalIpAddress(): String {
         NetworkInterface.getNetworkInterfaces()

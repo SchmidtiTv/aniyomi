@@ -1258,6 +1258,8 @@ class PlayerActivity : BaseActivity() {
                 newValue = LoadedVideoEvent(
                     videoType = VideoType.VIDEO,
                     video = video,
+                    episode = viewModel.currentEpisode.value,
+                    anime = viewModel.currentAnime.value,
                     title = viewModel.animeTitle.value,
                     subtitle = viewModel.mediaTitle.value
                 ),

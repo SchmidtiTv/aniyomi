@@ -1,5 +1,8 @@
 package eu.kanade.tachiyomi.ui.player.sync
 
+import eu.kanade.tachiyomi.data.database.models.anime.Episode
+import tachiyomi.domain.entries.anime.model.Anime
+
 data class PlaybackTrackSelection(
     val audioTrackId: Int? = null,
     val subtitleTrackId: Int? = null,
@@ -45,7 +48,9 @@ data class LoadedVideoEvent<T>(
     val videoType: VideoType,
     val video: T,
     val title: String,
-    val subtitle: String
+    val subtitle: String,
+    val episode: Episode? = null,
+    val anime: Anime? = null
 )
 
 enum class VideoType {

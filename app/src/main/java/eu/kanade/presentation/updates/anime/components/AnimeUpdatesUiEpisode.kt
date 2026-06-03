@@ -43,7 +43,7 @@ import tachiyomi.presentation.core.util.selectedBackground
 fun AnimeUpdatesUiEpisode(
     update: AnimeUpdatesWithRelations,
     selected: Boolean,
-    watchProgress: String,
+    watchProgress: String?,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
     onClickCover: (() -> Unit)?,
@@ -122,12 +122,14 @@ fun AnimeUpdatesUiEpisode(
                         .weight(weight = 1f, fill = false),
                 )
             }
-            Text(
-                text = watchProgress,
-                maxLines = 1,
-                color = LocalContentColor.current.copy(alpha = DISABLED_ALPHA),
-                overflow = TextOverflow.Ellipsis,
-            )
+            if (watchProgress != null) {
+                Text(
+                    text = watchProgress,
+                    maxLines = 1,
+                    color = LocalContentColor.current.copy(alpha = DISABLED_ALPHA),
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
 
         EpisodeDownloadIndicator(

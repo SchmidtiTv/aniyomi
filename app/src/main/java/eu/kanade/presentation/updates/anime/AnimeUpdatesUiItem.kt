@@ -124,7 +124,8 @@ internal fun LazyListScope.animeUpdatesUiItems(
                             update = episode.update,
                             selected = episode.selected,
                             watchProgress = episode.update.lastSecondSeen
-                                .let {
+                                .takeIf { it > 0 }
+                                ?.let {
                                     stringResource(
                                         AYMR.strings.episode_progress,
                                         formatProgress(it),

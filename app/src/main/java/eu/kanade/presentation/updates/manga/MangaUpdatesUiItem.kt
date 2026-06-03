@@ -12,6 +12,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.util.fastAll
 import eu.kanade.presentation.components.relativeDateText
 import eu.kanade.presentation.entries.manga.components.ChapterDownloadAction
 import eu.kanade.presentation.updates.manga.components.MangaUpdatesUiChapter
@@ -95,8 +96,13 @@ internal fun LazyListScope.mangaUpdatesUiItems(
             MangaUpdatesUiManga(
                 modifier = Modifier.animateItemFastScroll(),
                 manga = manga,
-                selected = false,
+                selected = chapters.isNotEmpty() && chapters.fastAll { it.selected },
                 onClick = { onToggleManga(manga.mangaId) },
+                onLongClick = {
+                    for (chapter in chapters) {
+                        onUpdateSelected(chapter, true, true, true)
+                    }
+                },
                 openManga = manga.mangaId in openedMangas,
             )
             if (manga.mangaId in openedMangas) {

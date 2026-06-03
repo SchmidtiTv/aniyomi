@@ -12,6 +12,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.util.fastAll
 import eu.kanade.presentation.components.relativeDateText
 import eu.kanade.presentation.entries.anime.components.EpisodeDownloadAction
 import eu.kanade.presentation.updates.anime.components.AnimeUpdatesUiAnime
@@ -101,8 +102,13 @@ internal fun LazyListScope.animeUpdatesUiItems(
             AnimeUpdatesUiAnime(
                 modifier = Modifier.animateItemFastScroll(),
                 anime = anime,
-                selected = false,
+                selected = episodes.isNotEmpty() && episodes.fastAll { it.selected },
                 onClick = { onToggleAnime(anime.animeId) },
+                onLongClick = {
+                    for (episode in episodes) {
+                        onUpdateSelected(episode, true, true, true)
+                    }
+                },
                 openAnime = anime.animeId in openedAnimes,
             )
             if (anime.animeId in openedAnimes) {

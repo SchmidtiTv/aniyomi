@@ -1,6 +1,7 @@
 package eu.kanade.presentation.updates.manga.components
 
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
@@ -28,6 +29,7 @@ fun MangaUpdatesUiManga(
     manga: MangaUpdatesUiModels.Manga,
     selected: Boolean,
     onClick: () -> Unit,
+    onLongClick: () -> Unit,
     openManga: Boolean,
     modifier: Modifier = Modifier,
 ) {
@@ -36,6 +38,7 @@ fun MangaUpdatesUiManga(
             .selectedBackground(selected)
             .combinedClickable(
                 onClick = onClick,
+                onLongClick = onLongClick,
             )
             .height(56.dp)
             .padding(horizontal = MaterialTheme.padding.medium),
@@ -47,13 +50,27 @@ fun MangaUpdatesUiManga(
                 .fillMaxHeight(),
             data = manga.coverData,
         )
-        Text(
-            text = manga.mangaTitle,
-            maxLines = 1,
-            style = MaterialTheme.typography.bodyMedium,
-            color = LocalContentColor.current,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Column(
+            modifier = Modifier
+                .padding(horizontal = MaterialTheme.padding.medium)
+                .weight(1f),
+        ) {
+            Text(
+                text = manga.mangaTitle,
+                maxLines = 1,
+                style = MaterialTheme.typography.bodyMedium,
+                color = LocalContentColor.current,
+                overflow = TextOverflow.Ellipsis,
+            )
+
+            Text(
+                text = manga.subText,
+                maxLines = 1,
+                style = MaterialTheme.typography.bodySmall,
+                color = LocalContentColor.current,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
         Icon(
             imageVector = if (!openManga) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,
             contentDescription = null,

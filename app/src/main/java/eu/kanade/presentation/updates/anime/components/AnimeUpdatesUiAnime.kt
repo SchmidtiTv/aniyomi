@@ -29,6 +29,7 @@ fun AnimeUpdatesUiAnime(
     anime: AnimeUpdatesUiModels.Anime,
     selected: Boolean,
     onClick: () -> Unit,
+    onLongClick: () -> Unit,
     openAnime: Boolean,
     modifier: Modifier = Modifier,
 ) {
@@ -37,6 +38,7 @@ fun AnimeUpdatesUiAnime(
             .selectedBackground(selected)
             .combinedClickable(
                 onClick = onClick,
+                onLongClick = onLongClick,
             )
             .height(56.dp)
             .padding(horizontal = MaterialTheme.padding.medium),
@@ -61,17 +63,16 @@ fun AnimeUpdatesUiAnime(
                 overflow = TextOverflow.Ellipsis,
             )
 
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = anime.subText,
-                    maxLines = 1,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = LocalContentColor.current,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier
-                        .weight(weight = 1f, fill = false),
-                )
-            }
+            Text(
+                text = anime.subText,
+                maxLines = 1,
+                style = MaterialTheme.typography.bodySmall,
+                color = LocalContentColor.current,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .weight(weight = 1f, fill = false),
+            )
+
         }
         Icon(
             imageVector = if (!openAnime) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,

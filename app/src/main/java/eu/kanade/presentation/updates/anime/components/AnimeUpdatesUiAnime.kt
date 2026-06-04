@@ -30,6 +30,7 @@ fun AnimeUpdatesUiAnime(
     selected: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
+    onClickCover: (() -> Unit)?,
     openAnime: Boolean,
     modifier: Modifier = Modifier,
 ) {
@@ -49,6 +50,7 @@ fun AnimeUpdatesUiAnime(
                 .padding(vertical = 6.dp)
                 .fillMaxHeight(),
             data = anime.coverData,
+            onClick = onClickCover,
         )
         Column(
             modifier = Modifier
@@ -72,7 +74,6 @@ fun AnimeUpdatesUiAnime(
                 modifier = Modifier
                     .weight(weight = 1f, fill = false),
             )
-
         }
         Icon(
             imageVector = if (!openAnime) Icons.Default.KeyboardArrowDown else Icons.Default.KeyboardArrowUp,

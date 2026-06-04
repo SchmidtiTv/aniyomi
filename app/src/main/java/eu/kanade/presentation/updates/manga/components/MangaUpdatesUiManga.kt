@@ -30,6 +30,7 @@ fun MangaUpdatesUiManga(
     selected: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
+    onClickCover: (() -> Unit)?,
     openManga: Boolean,
     modifier: Modifier = Modifier,
 ) {
@@ -49,6 +50,7 @@ fun MangaUpdatesUiManga(
                 .padding(vertical = 6.dp)
                 .fillMaxHeight(),
             data = manga.coverData,
+            onClick = onClickCover,
         )
         Column(
             modifier = Modifier

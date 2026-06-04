@@ -29,6 +29,7 @@ import tachiyomi.presentation.core.components.ListGroupHeader
 import tachiyomi.presentation.core.components.material.padding
 import tachiyomi.presentation.core.i18n.pluralStringResource
 import tachiyomi.presentation.core.i18n.stringResource
+import java.time.LocalDate
 
 internal fun LazyListScope.mangaUpdatesLastUpdatedItem(
     lastUpdated: Long,
@@ -50,8 +51,8 @@ internal fun LazyListScope.mangaUpdatesLastUpdatedItem(
 internal fun LazyListScope.mangaUpdatesUiItems(
     uiModels: List<MangaUpdatesUiModel>,
     selectionMode: Boolean,
-    openedMangas: Set<Long>,
-    onToggleManga: (Long) -> Unit,
+    openedMangas: Set<Pair<Long, LocalDate>>,
+    onToggleManga: (Long, LocalDate) -> Unit,
     onUpdateSelected: (MangaUpdatesItem, Boolean, Boolean, Boolean) -> Unit,
     onClickCover: (MangaUpdatesItem) -> Unit,
     onClickUpdate: (MangaUpdatesItem) -> Unit,
@@ -90,7 +91,7 @@ internal fun LazyListScope.mangaUpdatesUiItems(
                 mangaId = entry.key,
                 mangaTitle = entry.value.first().item.update.mangaTitle,
                 coverData = entry.value.first().item.update.coverData,
-                subText = "Updated $chapterAmount chapter${if (chapterAmount > 1) "s" else ""}",
+                subText = subText,
             )
         }
 
@@ -106,15 +107,15 @@ internal fun LazyListScope.mangaUpdatesUiItems(
                 modifier = Modifier.animateItemFastScroll(),
                 manga = manga,
                 selected = chapters.isNotEmpty() && chapters.fastAll { it.selected },
-                onClick = { onToggleManga(manga.mangaId) },
+                onClick = { onToggleManga(manga.mangaId, header.date) },
                 onLongClick = {
                     for (chapter in chapters) {
                         onUpdateSelected(chapter, true, true, true)
                     }
                 },
-                openManga = manga.mangaId in openedMangas,
+                openManga = Pair(manga.mangaId, header.date) in openedMangas,
             )
-            if (manga.mangaId in openedMangas) {
+            if (Pair(manga.mangaId, header.date) in openedMangas) {
                 Column(
                     modifier = Modifier
                         .padding(start = MaterialTheme.padding.large)

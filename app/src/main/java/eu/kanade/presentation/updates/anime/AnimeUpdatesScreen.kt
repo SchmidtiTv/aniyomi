@@ -75,7 +75,7 @@ fun AnimeUpdateScreen(
             else -> {
                 val scope = rememberCoroutineScope()
                 var isRefreshing by remember { mutableStateOf(false) }
-                var openedAnimes by remember { mutableStateOf(emptySet<Long>()) }
+                var openedAnimes by remember { mutableStateOf(emptySet<Pair<Long, LocalDate>>()) }
 
                 PullRefresh(
                     refreshing = isRefreshing,
@@ -101,11 +101,11 @@ fun AnimeUpdateScreen(
                             uiModels = state.getUiModel(),
                             selectionMode = state.selectionMode,
                             openedAnimes = openedAnimes,
-                            onToggleAnime = { animeId ->
-                                openedAnimes = if (animeId in openedAnimes) {
-                                    openedAnimes - animeId
+                            onToggleAnime = { animeId, date ->
+                                openedAnimes = if (Pair(animeId, date) in openedAnimes) {
+                                    openedAnimes - Pair(animeId, date)
                                 } else {
-                                    openedAnimes + animeId
+                                    openedAnimes + Pair(animeId, date)
                                 }
                             },
                             onUpdateSelected = onUpdateSelected,

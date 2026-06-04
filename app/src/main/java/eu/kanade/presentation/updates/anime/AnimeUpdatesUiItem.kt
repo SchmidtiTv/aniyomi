@@ -29,6 +29,7 @@ import tachiyomi.presentation.core.components.ListGroupHeader
 import tachiyomi.presentation.core.components.material.padding
 import tachiyomi.presentation.core.i18n.pluralStringResource
 import tachiyomi.presentation.core.i18n.stringResource
+import java.time.LocalDate
 import java.util.concurrent.TimeUnit
 
 internal fun LazyListScope.animeUpdatesLastUpdatedItem(
@@ -55,8 +56,8 @@ internal fun LazyListScope.animeUpdatesLastUpdatedItem(
 internal fun LazyListScope.animeUpdatesUiItems(
     uiModels: List<AnimeUpdatesUiModel>,
     selectionMode: Boolean,
-    openedAnimes: Set<Long>,
-    onToggleAnime: (Long) -> Unit,
+    openedAnimes: Set<Pair<Long, LocalDate>>,
+    onToggleAnime: (Long, LocalDate) -> Unit,
     onUpdateSelected: (AnimeUpdatesItem, Boolean, Boolean, Boolean) -> Unit,
     onClickCover: (AnimeUpdatesItem) -> Unit,
     onClickUpdate: (AnimeUpdatesItem, altPlayer: Boolean) -> Unit,
@@ -111,15 +112,15 @@ internal fun LazyListScope.animeUpdatesUiItems(
                 modifier = Modifier.animateItemFastScroll(),
                 anime = anime,
                 selected = episodes.isNotEmpty() && episodes.fastAll { it.selected },
-                onClick = { onToggleAnime(anime.animeId) },
+                onClick = { onToggleAnime(anime.animeId, header.date) },
                 onLongClick = {
                     for (episode in episodes) {
                         onUpdateSelected(episode, true, true, true)
                     }
                 },
-                openAnime = anime.animeId in openedAnimes,
+                openAnime = Pair(anime.animeId, header.date) in openedAnimes,
             )
-            if (anime.animeId in openedAnimes) {
+            if (Pair(anime.animeId, header.date) in openedAnimes) {
                 Column(
                     modifier = Modifier
                         .padding(start = MaterialTheme.padding.large)

@@ -69,8 +69,7 @@ fun MangaUpdateScreen(
             else -> {
                 val scope = rememberCoroutineScope()
                 var isRefreshing by remember { mutableStateOf(false) }
-                var openedMangas by remember { mutableStateOf(emptySet<Long>()) }
-
+                var openedMangas by remember { mutableStateOf(emptySet<Pair<Long, LocalDate>>()) }
                 PullRefresh(
                     refreshing = isRefreshing,
                     onRefresh = {
@@ -95,11 +94,11 @@ fun MangaUpdateScreen(
                             uiModels = state.getUiModel(),
                             selectionMode = state.selectionMode,
                             openedMangas = openedMangas,
-                            onToggleManga = { mangaId ->
-                                openedMangas = if (mangaId in openedMangas) {
-                                    openedMangas - mangaId
+                            onToggleManga = { mangaId, date ->
+                                openedMangas = if (Pair(mangaId, date) in openedMangas) {
+                                    openedMangas - Pair(mangaId, date)
                                 } else {
-                                    openedMangas + mangaId
+                                    openedMangas + Pair(mangaId, date)
                                 }
                             },
                             onUpdateSelected = onUpdateSelected,

@@ -1,5 +1,6 @@
 package eu.kanade.presentation.updates.manga
 
+import android.content.Context
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
@@ -20,10 +21,13 @@ import eu.kanade.presentation.updates.manga.components.MangaUpdatesUiManga
 import eu.kanade.presentation.updates.manga.model.MangaUpdatesUiModels
 import eu.kanade.presentation.util.animateItemFastScroll
 import eu.kanade.presentation.util.relativeTimeSpanString
+import eu.kanade.tachiyomi.R
 import eu.kanade.tachiyomi.ui.updates.manga.MangaUpdatesItem
 import tachiyomi.i18n.MR
+import tachiyomi.i18n.aniyomi.AYMR
 import tachiyomi.presentation.core.components.ListGroupHeader
 import tachiyomi.presentation.core.components.material.padding
+import tachiyomi.presentation.core.i18n.pluralStringResource
 import tachiyomi.presentation.core.i18n.stringResource
 
 internal fun LazyListScope.mangaUpdatesLastUpdatedItem(
@@ -77,6 +81,11 @@ internal fun LazyListScope.mangaUpdatesUiItems(
         val groupedItems = itemsList.groupBy { it.item.update.mangaId }
         val mangas = groupedItems.map { entry ->
             val chapterAmount = entry.value.size
+            val subText = pluralStringResource(
+                AYMR.plurals.updated_amount_episodes,
+                chapterAmount,
+                chapterAmount
+            )
             MangaUpdatesUiModels.Manga(
                 mangaId = entry.key,
                 mangaTitle = entry.value.first().item.update.mangaTitle,

@@ -1,5 +1,6 @@
 package eu.kanade.presentation.updates.anime
 
+import android.content.Context
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
@@ -20,11 +21,13 @@ import eu.kanade.presentation.updates.anime.components.AnimeUpdatesUiEpisode
 import eu.kanade.presentation.updates.anime.model.AnimeUpdatesUiModels
 import eu.kanade.presentation.util.animateItemFastScroll
 import eu.kanade.presentation.util.relativeTimeSpanString
+import eu.kanade.tachiyomi.R
 import eu.kanade.tachiyomi.ui.updates.anime.AnimeUpdatesItem
 import tachiyomi.i18n.MR
 import tachiyomi.i18n.aniyomi.AYMR
 import tachiyomi.presentation.core.components.ListGroupHeader
 import tachiyomi.presentation.core.components.material.padding
+import tachiyomi.presentation.core.i18n.pluralStringResource
 import tachiyomi.presentation.core.i18n.stringResource
 import java.util.concurrent.TimeUnit
 
@@ -83,11 +86,16 @@ internal fun LazyListScope.animeUpdatesUiItems(
         val groupedItems = itemsList.groupBy { it.item.update.animeId }
         val animes = groupedItems.map { entry ->
             val episodeAmount = entry.value.size
+            val subText = pluralStringResource(
+                AYMR.plurals.updated_amount_episodes,
+                episodeAmount,
+                episodeAmount
+            )
             AnimeUpdatesUiModels.Anime(
                 animeId = entry.key,
                 animeTitle = entry.value.first().item.update.animeTitle,
                 coverData = entry.value.first().item.update.coverData,
-                subText = "Updated $episodeAmount episode${if (episodeAmount > 1) "s" else ""}",
+                subText = subText,
             )
         }
 

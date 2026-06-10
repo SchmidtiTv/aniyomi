@@ -24,6 +24,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.SubcomposeLayout
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -31,6 +32,7 @@ import androidx.compose.ui.util.fastForEach
 import androidx.compose.ui.util.fastMap
 import androidx.compose.ui.util.fastMaxBy
 import dev.icerock.moko.resources.StringResource
+import eu.kanade.tachiyomi.util.cast.CastHandler
 import tachiyomi.i18n.MR
 import tachiyomi.presentation.core.i18n.stringResource
 
@@ -40,6 +42,9 @@ val IncognitoModeBannerBackgroundColor
     @Composable get() = MaterialTheme.colorScheme.primary
 val IndexingBannerBackgroundColor
     @Composable get() = MaterialTheme.colorScheme.secondary
+
+val CastingBannerBackgroundColor
+    @Composable get() = MaterialTheme.colorScheme.surfaceVariant
 
 @Composable
 fun WarningBanner(
@@ -110,7 +115,21 @@ fun AppStateBanners(
         }.fastMap { it.measure(constraints) }
         val incognitoHeight = incognitoPlaceable.fastMaxBy { it.height }?.height ?: 0
 
-        layout(constraints.maxWidth, indexingHeight + downloadedOnlyHeight + incognitoHeight) {
+        val castPlaceable = subcompose(3) {
+            AnimatedVisibility(
+                visible = true, //CastHandler.getInstance(LocalContext.current).isConnected(),
+                enter = expandVertically(),
+                exit = shrinkVertically(),
+            ) {
+                val top = (mainInsetsTop - indexingHeight - downloadedOnlyHeight - incognitoHeight).coerceAtLeast(0)
+                CastingBanner(
+                    modifier = Modifier.windowInsetsPadding(WindowInsets(top = top)),
+                )
+            }
+        }.fastMap { it.measure(constraints) }
+        val castHeight = castPlaceable.fastMaxBy { it.height }?.height ?: 0
+
+        layout(constraints.maxWidth, indexingHeight + downloadedOnlyHeight + incognitoHeight + castHeight) {
             indexingPlaceable.fastForEach {
                 it.place(0, 0)
             }
@@ -119,6 +138,9 @@ fun AppStateBanners(
             }
             incognitoPlaceable.fastForEach {
                 it.place(0, indexingHeight + downloadedOnlyHeight)
+            }
+            castPlaceable.fastForEach {
+                it.place(0, indexingHeight + downloadedOnlyHeight + incognitoHeight)
             }
         }
     }
@@ -134,6 +156,25 @@ private fun DownloadedOnlyModeBanner(modifier: Modifier = Modifier) {
             .padding(4.dp)
             .then(modifier),
         color = MaterialTheme.colorScheme.onTertiary,
+        textAlign = TextAlign.Center,
+        style = MaterialTheme.typography.labelMedium,
+    )
+}
+
+@Composable
+private fun CastingBanner(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val castHandler = CastHandler.getInstance(context = context)
+    val currentRoute = castHandler.getCurrentRoute()
+
+    Text(
+        text = "Cast to ${currentRoute.name}",
+        modifier = Modifier
+            .background(CastingBannerBackgroundColor)
+            .fillMaxWidth()
+            .padding(4.dp)
+            .then(modifier),
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
         textAlign = TextAlign.Center,
         style = MaterialTheme.typography.labelMedium,
     )

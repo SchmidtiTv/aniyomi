@@ -347,6 +347,10 @@ class CastHandler private constructor(context: Context) {
         return mediaRouter.selectedRoute == route || mediaRouter.selectedRoute.id == route.id
     }
 
+    fun getCurrentRoute(): MediaRouter.RouteInfo {
+        return mediaRouter.selectedRoute
+    }
+
     // --- Connection
     fun connect(route: MediaRouter.RouteInfo) {
         mediaRouter.selectRoute(route)

@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.HelpOutline
 import androidx.compose.material.icons.automirrored.outlined.Label
+import androidx.compose.material.icons.outlined.Cast
 import androidx.compose.material.icons.outlined.CloudOff
 import androidx.compose.material.icons.outlined.GetApp
 import androidx.compose.material.icons.outlined.Info
@@ -47,6 +48,7 @@ fun MoreScreen(
     onClickPlayerSettings: () -> Unit,
     onClickSettings: () -> Unit,
     onClickAbout: () -> Unit,
+    onClickCast: () -> Unit,
 ) {
     val uriHandler = LocalUriHandler.current
 
@@ -73,6 +75,14 @@ fun MoreScreen(
                     icon = ImageVector.vectorResource(R.drawable.ic_glasses_24dp),
                     checked = incognitoMode,
                     onCheckedChanged = onIncognitoModeChange,
+                )
+            }
+            item {
+                TextPreferenceWidget(
+                    title = "Cast to Tv",
+                    subtitle = "Cast to Tv",
+                    icon = Icons.Outlined.Cast,
+                    onPreferenceClick = onClickCast,
                 )
             }
 

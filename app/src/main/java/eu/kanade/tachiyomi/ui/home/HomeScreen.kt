@@ -6,16 +6,22 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBarDefaults
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Text
@@ -25,10 +31,14 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastForEach
 import cafe.adriel.voyager.navigator.LocalNavigator
 import cafe.adriel.voyager.navigator.currentOrThrow
@@ -47,6 +57,7 @@ import eu.kanade.tachiyomi.ui.library.anime.AnimeLibraryTab
 import eu.kanade.tachiyomi.ui.library.manga.MangaLibraryTab
 import eu.kanade.tachiyomi.ui.more.MoreTab
 import eu.kanade.tachiyomi.ui.updates.UpdatesTab
+import eu.kanade.tachiyomi.util.cast.CastHandler
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
@@ -60,6 +71,7 @@ import tachiyomi.presentation.core.components.material.NavigationBar
 import tachiyomi.presentation.core.components.material.NavigationRail
 import tachiyomi.presentation.core.components.material.Scaffold
 import tachiyomi.presentation.core.i18n.pluralStringResource
+import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.util.collectAsState
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
@@ -80,6 +92,10 @@ object HomeScreen : Screen() {
 
     @Composable
     override fun Content() {
+        val context = LocalContext.current
+        val castHandler = CastHandler.getInstance(context = context)
+        val castIsConnected = castHandler.isConnected()
+
         val navStyle by uiPreferences.navStyle().collectAsState()
         val navigator = LocalNavigator.currentOrThrow
         TabNavigator(
@@ -99,18 +115,43 @@ object HomeScreen : Screen() {
                         }
                     },
                     bottomBar = {
-                        if (!isTabletUi()) {
-                            val bottomNavVisible by produceState(initialValue = true) {
-                                showBottomNavEvent.receiveAsFlow().collectLatest { value = it }
-                            }
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(5.dp, Alignment.CenterVertically),
+                        ) {
                             AnimatedVisibility(
-                                visible = bottomNavVisible && tabNavigator.current != navStyle.moreTab,
-                                enter = expandVertically(),
-                                exit = shrinkVertically(),
+                                visible = castIsConnected,
                             ) {
-                                NavigationBar {
-                                    navStyle.tabs.fastForEach {
-                                        NavigationBarItem(it)
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    modifier = Modifier
+                                        .padding(horizontal = 5.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(NavigationBarDefaults.containerColor)
+                                        .fillMaxWidth()
+                                        .padding(vertical = 8.dp),
+                                ) {
+                                    Text(
+                                        text = stringResource(MR.strings.app_name),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                    )
+                                }
+                            }
+                            if (!isTabletUi()) {
+                                val bottomNavVisible by produceState(initialValue = true) {
+                                    showBottomNavEvent.receiveAsFlow().collectLatest { value = it }
+                                }
+                                AnimatedVisibility(
+                                    visible = bottomNavVisible && tabNavigator.current != navStyle.moreTab,
+                                    enter = expandVertically(),
+                                    exit = shrinkVertically(),
+                                ) {
+                                    NavigationBar {
+                                        navStyle.tabs.fastForEach {
+                                            NavigationBarItem(it)
+                                        }
                                     }
                                 }
                             }
@@ -183,6 +224,7 @@ object HomeScreen : Screen() {
                                 }
                                 BrowseTab
                             }
+
                             is Tab.More -> MoreTab
                         }
 
@@ -285,6 +327,7 @@ object HomeScreen : Screen() {
                             }
                         }
                     }
+
                     BrowseTab::class.isInstance(tab) -> {
                         val count by produceState(initialValue = 0) {
                             val pref = Injekt.get<SourcePreferences>()

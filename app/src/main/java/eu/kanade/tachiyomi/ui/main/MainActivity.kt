@@ -98,6 +98,7 @@ import eu.kanade.tachiyomi.ui.more.NewUpdateScreen
 import eu.kanade.tachiyomi.ui.more.OnboardingScreen
 import eu.kanade.tachiyomi.ui.player.ExternalIntents
 import eu.kanade.tachiyomi.ui.player.PlayerActivity
+import eu.kanade.tachiyomi.util.cast.CastHandler
 import eu.kanade.tachiyomi.util.system.dpToPx
 import eu.kanade.tachiyomi.util.system.isNavigationBarNeedsScrim
 import eu.kanade.tachiyomi.util.system.openInBrowser
@@ -136,6 +137,8 @@ import kotlin.time.Duration.Companion.seconds
 
 class MainActivity : BaseActivity() {
 
+    private var ownsAppTask = false
+
     private val libraryPreferences: LibraryPreferences by injectLazy()
     private val preferences: BasePreferences by injectLazy()
 
@@ -170,6 +173,7 @@ class MainActivity : BaseActivity() {
             finish()
             return
         }
+        ownsAppTask = true
 
         setComposeContent {
             val context = LocalContext.current
@@ -343,6 +347,13 @@ class MainActivity : BaseActivity() {
                 ExternalIntents.externalIntents.onActivityResult(result.data)
             }
         }
+    }
+
+    override fun onDestroy() {
+        if (ownsAppTask && isFinishing && !isChangingConfigurations) {
+            CastHandler.getInstance(this).disconnect()
+        }
+        super.onDestroy()
     }
 
     override fun onProvideAssistContent(outContent: AssistContent) {

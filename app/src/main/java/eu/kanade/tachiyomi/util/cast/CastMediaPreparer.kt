@@ -3,6 +3,7 @@ package eu.kanade.tachiyomi.util.cast
 import android.content.Context
 import androidx.core.net.toUri
 import com.arthenica.ffmpegkit.FFprobeKit
+import com.arthenica.ffmpegkit.LogCallback
 import eu.kanade.tachiyomi.util.cast.proxy.Server
 import eu.kanade.tachiyomi.util.storage.toFFmpegString
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -101,18 +102,19 @@ internal object CastMediaPreparer {
             )
         }.toTypedArray()
 
+        val capturedOutput = StringBuffer()
         val output = suspendCancellableCoroutine { continuation ->
-            val session = FFprobeKit.executeWithArgumentsAsync(arguments) {
+            val session = FFprobeKit.executeWithArgumentsAsync(arguments, {
                 if (continuation.isActive) {
                     if (it.returnCode.isValueSuccess) {
-                        continuation.resume(it.output)
+                        continuation.resume(it.output.ifBlank { capturedOutput.toString() })
                     } else {
                         continuation.resumeWithException(
                             CastPreparationException("Could not inspect this video for Cast: ${it.output}"),
                         )
                     }
                 }
-            }
+            }, LogCallback { log -> capturedOutput.append(log.message.orEmpty()) })
             continuation.invokeOnCancellation { session.cancel() }
         }
         return parseProbe(output)

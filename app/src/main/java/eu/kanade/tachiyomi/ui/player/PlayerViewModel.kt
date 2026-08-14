@@ -194,6 +194,9 @@ class PlayerViewModel @JvmOverloads constructor(
     private var suppressNextSeekEventUntil = 0L
     private var suppressNextSpeedEventUntil = 0L
 
+    @Volatile
+    private var mediaTransitionInProgress = false
+
     private val _currentPlaylist = MutableStateFlow<List<Episode>>(emptyList())
     val currentPlaylist = _currentPlaylist.asStateFlow()
 
@@ -611,9 +614,19 @@ class PlayerViewModel @JvmOverloads constructor(
     }
 
     fun shouldBroadcastSeekEvent(): Boolean {
+        if (mediaTransitionInProgress) return false
+
         return consumeRemoteEventSuppression(suppressNextSeekEventUntil).also { shouldBroadcast ->
             if (!shouldBroadcast) suppressNextSeekEventUntil = 0L
         }
+    }
+
+    fun beginMediaTransition() {
+        mediaTransitionInProgress = true
+    }
+
+    fun completeMediaTransition() {
+        mediaTransitionInProgress = false
     }
 
     fun shouldBroadcastSpeedEvent(): Boolean {
@@ -713,6 +726,14 @@ class PlayerViewModel @JvmOverloads constructor(
         )
     }
 
+    fun pauseLocalPlayback() {
+        applyPauseState(
+            paused = true,
+            updatePlayer = true,
+            emitCommand = false,
+        )
+    }
+
     fun unpause() {
         applyPauseState(
             paused = false,
@@ -724,6 +745,14 @@ class PlayerViewModel @JvmOverloads constructor(
         applyPauseState(
             paused = paused,
             updatePlayer = false,
+        )
+    }
+
+    fun applyManagedPauseState(paused: Boolean) {
+        applyPauseState(
+            paused = paused,
+            updatePlayer = true,
+            emitCommand = false,
         )
     }
 
@@ -750,8 +779,12 @@ class PlayerViewModel @JvmOverloads constructor(
     }
 
     fun stopPlayback() {
-        MPVLib.command(arrayOf("stop"))
+        stopLocalPlayback()
         emitPlaybackCommand(PlaybackCommandType.STOP, null)
+    }
+
+    fun stopLocalPlayback() {
+        MPVLib.command(arrayOf("stop"))
     }
 
     private val showStatusBar = playerPreferences.showSystemStatusBar().get()
@@ -1862,13 +1895,16 @@ class PlayerViewModel @JvmOverloads constructor(
 
             PlaybackCommandType.REQUEST_FULL_STATE -> {
                 val media = currentPlaybackMedia() ?: return
+                val positionMs = activity.player.timePos
+                    ?.times(1000L)
+                    ?: (pos.value * 1000).toLong()
 
                 emitPlaybackCommand(
                     eventType = PlaybackCommandType.SYNC_STATE,
                     newValue = PlaybackSessionState(
                         media = media,
                         playWhenReady = !paused.value,
-                        positionMs = (pos.value * 1000).toLong(),
+                        positionMs = positionMs,
                         durationMs = duration.value.takeIf { it > 0f }?.let { (it * 1000).toLong() },
                         playbackState = currentPlaybackState(),
                         playbackSpeed = playbackSpeed.value,

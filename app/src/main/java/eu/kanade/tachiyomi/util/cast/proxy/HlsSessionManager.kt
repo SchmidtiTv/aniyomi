@@ -10,6 +10,7 @@ import tachiyomi.core.common.util.system.logcat
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.time.Duration.Companion.milliseconds
 
 internal object HlsSessionManager {
     private const val READY_SEGMENT_COUNT = 3
@@ -84,7 +85,7 @@ internal object HlsSessionManager {
         sessions[id] = HlsSession(directory, ffmpegSession)
 
         try {
-            withTimeout(PREPARATION_TIMEOUT_MS) {
+            withTimeout(PREPARATION_TIMEOUT_MS.milliseconds) {
                 while (true) {
                     val segmentCount = directory.listFiles { file ->
                         file.name.startsWith("seg_") && file.extension == "ts"

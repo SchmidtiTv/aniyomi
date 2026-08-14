@@ -89,6 +89,7 @@ import eu.kanade.tachiyomi.ui.player.settings.PlayerPreferences
 import eu.kanade.tachiyomi.ui.player.sync.PlaybackCommand
 import eu.kanade.tachiyomi.ui.player.sync.PlaybackCommandType
 import eu.kanade.tachiyomi.ui.player.sync.PlaybackSyncCoordinator
+import eu.kanade.tachiyomi.ui.player.sync.PlayingManager
 import eu.kanade.tachiyomi.ui.player.sync.SyncOrigin
 import eu.kanade.tachiyomi.ui.player.utils.ChapterUtils
 import eu.kanade.tachiyomi.ui.player.utils.ChapterUtils.Companion.getStringRes
@@ -142,6 +143,7 @@ class PlayerActivity : BaseActivity() {
     private val networkPreferences: NetworkPreferences = Injekt.get()
     private val storageManager: StorageManager = Injekt.get()
     private val playbackCoordinator by lazy { PlaybackSyncCoordinator.getInstance() }
+    private val playingManager by lazy { PlayingManager.getInstance() }
     private val torrentServerApi: TorrentServerApi = Injekt.get()
     private val torrentServerUtils: TorrentServerUtils = Injekt.get()
     private val torrentPreferences: TorrentPreferences = Injekt.get()
@@ -322,6 +324,7 @@ class PlayerActivity : BaseActivity() {
     }
 
     override fun onDestroy() {
+        val isClosingAppTask = isTaskRoot && isFinishing && !isChangingConfigurations
         player.isExiting = true
 
         httpServer?.stop()
@@ -346,6 +349,10 @@ class PlayerActivity : BaseActivity() {
         MPVLib.removeObserver(playerObserver)
         player.destroy()
 
+        if (isClosingAppTask) {
+            CastHandler.getInstance(this).disconnect()
+        }
+
         super.onDestroy()
     }
 
@@ -360,9 +367,17 @@ class PlayerActivity : BaseActivity() {
         player.isExiting = true
         if (isFinishing) {
             viewModel.deletePendingEpisodes()
-            viewModel.stopPlayback()
+            if (playingManager.hasActiveCastPlayback()) {
+                viewModel.stopLocalPlayback()
+            } else {
+                viewModel.stopPlayback()
+            }
         } else {
-            viewModel.pause()
+            if (playingManager.hasActiveCastPlayback()) {
+                viewModel.pauseLocalPlayback()
+            } else {
+                viewModel.pause()
+            }
         }
 
         super.onPause()
@@ -659,6 +674,10 @@ class PlayerActivity : BaseActivity() {
     }
 
     override fun onResume() {
+        playingManager.activePlayback.value?.let { playback ->
+            viewModel.applyManagedPauseState(paused = !playback.isPlaying)
+        }
+
         if (!player.isExiting) {
             super.onResume()
             return
@@ -1116,6 +1135,7 @@ class PlayerActivity : BaseActivity() {
     fun setVideo(video: Video?, position: Long? = null) {
         if (player.isExiting) return
         if (video == null) return
+        viewModel.beginMediaTransition()
         httpServer?.stop()
         httpServer = null
 
@@ -1123,8 +1143,15 @@ class PlayerActivity : BaseActivity() {
 
         if (viewModel.isLoadingEpisode.value) {
             viewModel.currentEpisode.value?.let { episode ->
+                val managedCastPosition = playingManager.activePlayback.value
+                    ?.takeIf {
+                        it.origin == SyncOrigin.CAST &&
+                            it.media.episode?.id == episode.id
+                    }
+                    ?.positionAt(System.currentTimeMillis())
                 val preservePos = playerPreferences.preserveWatchingPosition().get()
-                val resumePosition = position
+                val resumePosition = managedCastPosition
+                    ?: position
                     ?: if (episode.seen && !preservePos) {
                         0L
                     } else {
@@ -1334,6 +1361,7 @@ class PlayerActivity : BaseActivity() {
         setMpvOptions()
         setMpvMediaTitle()
         emitLoadedMediaEvent()
+        viewModel.completeMediaTransition()
         setupPlayerOrientation()
         setupChapters()
         setupTracks()
@@ -1362,13 +1390,26 @@ class PlayerActivity : BaseActivity() {
 
     private fun emitLoadedMediaEvent() {
         val media = viewModel.currentPlaybackMedia() ?: return
+        val eventTime = System.currentTimeMillis()
 
         playbackCoordinator.addEvent(
             PlaybackCommand(
                 commandId = UUID.randomUUID().toString(),
-                eventTime = System.currentTimeMillis(),
+                eventTime = eventTime,
                 commandType = PlaybackCommandType.LOAD_MEDIA,
                 newValue = media,
+                origin = SyncOrigin.LOCAL,
+            ),
+        )
+
+        val positionMs = player.timePos?.times(1000L)?.coerceAtLeast(0L) ?: return
+        if (positionMs == 0L) return
+        playbackCoordinator.addEvent(
+            PlaybackCommand(
+                commandId = UUID.randomUUID().toString(),
+                eventTime = eventTime,
+                commandType = PlaybackCommandType.SEEK_TO,
+                newValue = positionMs,
                 origin = SyncOrigin.LOCAL,
             ),
         )

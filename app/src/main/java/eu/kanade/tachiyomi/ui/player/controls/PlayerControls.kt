@@ -32,6 +32,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Lock
@@ -69,17 +70,16 @@ import eu.kanade.tachiyomi.ui.player.controls.components.BrightnessSlider
 import eu.kanade.tachiyomi.ui.player.controls.components.ControlsButton
 import eu.kanade.tachiyomi.ui.player.controls.components.SeekbarWithTimers
 import eu.kanade.tachiyomi.ui.player.controls.components.TextPlayerUpdate
+import eu.kanade.tachiyomi.ui.player.controls.components.ThumbnailPreview
 import eu.kanade.tachiyomi.ui.player.controls.components.VolumeSlider
 import eu.kanade.tachiyomi.ui.player.controls.components.sheets.toFixed
 import eu.kanade.tachiyomi.ui.player.settings.AudioPreferences
 import eu.kanade.tachiyomi.ui.player.settings.GesturePreferences
 import eu.kanade.tachiyomi.ui.player.settings.PlayerPreferences
 import eu.kanade.tachiyomi.ui.player.settings.SubtitlePreferences
-import `is`.xyz.mpv.MPVLib
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.update
-import tachiyomi.core.common.util.system.logcat
 import tachiyomi.presentation.core.components.material.padding
 import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.util.collectAsState
@@ -110,21 +110,25 @@ fun PlayerControls(
     val isLoadingEpisode by viewModel.isLoadingEpisode.collectAsState()
     val duration by viewModel.duration.collectAsState()
     val position by viewModel.pos.collectAsState()
+    val seekPosition by viewModel.seekPosition.collectAsState()
+    val isSeeking by viewModel.isSeeking.collectAsState()
     val paused by viewModel.paused.collectAsState()
     val gestureSeekAmount by viewModel.gestureSeekAmount.collectAsState()
     val doubleTapSeekAmount by viewModel.doubleTapSeekAmount.collectAsState()
     val seekText by viewModel.seekText.collectAsState()
     val currentChapter by viewModel.currentChapter.collectAsState()
-    val chapters by viewModel.chapters.collectAsState()
+    val indexedChapters by viewModel.chapters.collectAsState()
     val currentBrightness by viewModel.currentBrightness.collectAsState()
 
     val playerTimeToDisappear by playerPreferences.playerTimeToDisappear().collectAsState()
-    var isSeeking by remember { mutableStateOf(false) }
-    var pendingTimelineSeek by remember { mutableStateOf<Float?>(null) }
     var resetControls by remember { mutableStateOf(true) }
 
     val customButtons by viewModel.customButtons.collectAsState()
     val customButton by viewModel.primaryButton.collectAsState()
+
+    val chapters = remember(indexedChapters) {
+        indexedChapters.map { it.toSegment() }.toImmutableList()
+    }
 
     LaunchedEffect(
         controlsShown,
@@ -175,6 +179,7 @@ fun PlayerControls(
                 val unlockControlsButton = createRef()
                 val (bottomRightControls, bottomLeftControls) = createRefs()
                 val centerControls = createRef()
+                val thumbnail = createRef()
                 val seekbar = createRef()
                 val (playerUpdates) = createRefs()
 
@@ -199,27 +204,27 @@ fun PlayerControls(
                 AnimatedVisibility(
                     isBrightnessSliderShown,
                     enter =
-                        if (!reduceMotion) {
-                            slideInHorizontally(playerControlsEnterAnimationSpec()) {
-                                if (swapVolumeAndBrightness) -it else it
-                            } +
-                                fadeIn(
-                                    playerControlsEnterAnimationSpec(),
-                                )
-                        } else {
-                            fadeIn(playerControlsEnterAnimationSpec())
-                        },
+                    if (!reduceMotion) {
+                        slideInHorizontally(playerControlsEnterAnimationSpec()) {
+                            if (swapVolumeAndBrightness) -it else it
+                        } +
+                            fadeIn(
+                                playerControlsEnterAnimationSpec(),
+                            )
+                    } else {
+                        fadeIn(playerControlsEnterAnimationSpec())
+                    },
                     exit =
-                        if (!reduceMotion) {
-                            slideOutHorizontally(playerControlsExitAnimationSpec()) {
-                                if (swapVolumeAndBrightness) -it else it
-                            } +
-                                fadeOut(
-                                    playerControlsExitAnimationSpec(),
-                                )
-                        } else {
-                            fadeOut(playerControlsExitAnimationSpec())
-                        },
+                    if (!reduceMotion) {
+                        slideOutHorizontally(playerControlsExitAnimationSpec()) {
+                            if (swapVolumeAndBrightness) -it else it
+                        } +
+                            fadeOut(
+                                playerControlsExitAnimationSpec(),
+                            )
+                    } else {
+                        fadeOut(playerControlsExitAnimationSpec())
+                    },
                     modifier = Modifier.constrainAs(brightnessSlider) {
                         if (swapVolumeAndBrightness) {
                             start.linkTo(parent.start, spacing.medium)
@@ -240,27 +245,27 @@ fun PlayerControls(
                 AnimatedVisibility(
                     isVolumeSliderShown,
                     enter =
-                        if (!reduceMotion) {
-                            slideInHorizontally(playerControlsEnterAnimationSpec()) {
-                                if (swapVolumeAndBrightness) it else -it
-                            } +
-                                fadeIn(
-                                    playerControlsEnterAnimationSpec(),
-                                )
-                        } else {
-                            fadeIn(playerControlsEnterAnimationSpec())
-                        },
+                    if (!reduceMotion) {
+                        slideInHorizontally(playerControlsEnterAnimationSpec()) {
+                            if (swapVolumeAndBrightness) it else -it
+                        } +
+                            fadeIn(
+                                playerControlsEnterAnimationSpec(),
+                            )
+                    } else {
+                        fadeIn(playerControlsEnterAnimationSpec())
+                    },
                     exit =
-                        if (!reduceMotion) {
-                            slideOutHorizontally(playerControlsExitAnimationSpec()) {
-                                if (swapVolumeAndBrightness) it else -it
-                            } +
-                                fadeOut(
-                                    playerControlsExitAnimationSpec(),
-                                )
-                        } else {
-                            fadeOut(playerControlsExitAnimationSpec())
-                        },
+                    if (!reduceMotion) {
+                        slideOutHorizontally(playerControlsExitAnimationSpec()) {
+                            if (swapVolumeAndBrightness) it else -it
+                        } +
+                            fadeOut(
+                                playerControlsExitAnimationSpec(),
+                            )
+                    } else {
+                        fadeOut(playerControlsExitAnimationSpec())
+                    },
                     modifier = Modifier.constrainAs(volumeSlider) {
                         if (swapVolumeAndBrightness) {
                             end.linkTo(parent.end, spacing.medium)
@@ -331,9 +336,9 @@ fun PlayerControls(
                 }
                 AnimatedVisibility(
                     visible =
-                        (controlsShown && !areControlsLocked || gestureSeekAmount != null) ||
-                            isLoading ||
-                            isLoadingEpisode,
+                    (controlsShown && !areControlsLocked || gestureSeekAmount != null) ||
+                        isLoading ||
+                        isLoadingEpisode,
                     enter = fadeIn(playerControlsEnterAnimationSpec()),
                     exit = fadeOut(playerControlsExitAnimationSpec()),
                     modifier = Modifier.constrainAs(centerControls) {
@@ -361,6 +366,7 @@ fun PlayerControls(
                         exit = fadeOut(playerControlsExitAnimationSpec()),
                     )
                 }
+
                 AnimatedVisibility(
                     visible = (controlsShown || seekBarShown) && !areControlsLocked,
                     enter = if (!reduceMotion) {
@@ -383,28 +389,27 @@ fun PlayerControls(
                     val readAhead by viewModel.readAhead.collectAsState()
                     val preciseSeeking by gesturePreferences.playerSmoothSeek().collectAsState()
                     SeekbarWithTimers(
-                        position = position,
+                        playerPosition = position,
+                        seekPosition = seekPosition,
+                        isSeeking = isSeeking,
                         duration = duration,
                         readAheadValue = readAhead,
                         onValueChange = {
-                            isSeeking = true
-                            pendingTimelineSeek = it
-                            viewModel.updatePlayBackPos(it)
-                            viewModel.seekTo(it.toInt(), preciseSeeking)
+                            viewModel.updateSeekPos(it)
+                            viewModel.updateIsSeeking(true)
                         },
                         onValueChangeFinished = {
-                            pendingTimelineSeek?.let {
-                                viewModel.seekTo(it.toInt(), preciseSeeking)
-                            }
-                            pendingTimelineSeek = null
-                            isSeeking = false
+                            viewModel.updatePlayBackPos(seekPosition)
+                            viewModel.updateIsSeeking(false)
+                            viewModel.seekTo(seekPosition.toInt(), preciseSeeking)
                         },
                         timersInverted = Pair(false, invertDuration),
                         durationTimerOnCLick = { playerPreferences.invertDuration().set(!invertDuration) },
                         positionTimerOnClick = {},
-                        chapters = chapters.map { it.toSegment() }.toImmutableList(),
+                        chapters = chapters,
                     )
                 }
+
                 val mediaTitle by viewModel.mediaTitle.collectAsState()
                 val animeTitle by viewModel.animeTitle.collectAsState()
                 AnimatedVisibility(
@@ -548,6 +553,18 @@ fun PlayerControls(
                         onOpenSheet = viewModel::showSheet,
                     )
                 }
+
+                val thumbnailImage by viewModel.thumbnailImage.collectAsState()
+                ThumbnailPreview(
+                    visible = isSeeking,
+                    image = thumbnailImage,
+                    positionS = seekPosition.toLong(),
+                    durationS = duration.toLong(),
+                    chapters = chapters,
+                    modifier = Modifier.fillMaxWidth().constrainAs(thumbnail) {
+                        bottom.linkTo(seekbar.top, spacing.medium)
+                    },
+                )
             }
         }
 
@@ -568,7 +585,6 @@ fun PlayerControls(
         val currentSource by viewModel.currentSource.collectAsState()
         val showFailedHosters by playerPreferences.showFailedHosters().collectAsState()
         val emptyHosters by playerPreferences.showEmptyHosters().collectAsState()
-
 
         PlayerSheets(
             sheetShown = sheetShown,
@@ -592,7 +608,7 @@ fun PlayerControls(
             displayHosters = Pair(showFailedHosters, emptyHosters),
 
             chapter = currentChapter?.toSegment(),
-            chapters = chapters.map { it.toSegment() }.toImmutableList(),
+            chapters = chapters,
             onSeekToChapter = {
                 viewModel.selectChapter(it)
                 viewModel.dismissSheet()

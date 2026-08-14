@@ -117,7 +117,7 @@ fun AppStateBanners(
 
         val castPlaceable = subcompose(3) {
             AnimatedVisibility(
-                visible = true, //CastHandler.getInstance(LocalContext.current).isConnected(),
+                visible = true, // CastHandler.getInstance(LocalContext.current).isConnected(),
                 enter = expandVertically(),
                 exit = shrinkVertically(),
             ) {

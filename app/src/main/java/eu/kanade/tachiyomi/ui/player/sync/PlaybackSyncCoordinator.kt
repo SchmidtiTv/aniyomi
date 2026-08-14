@@ -7,7 +7,7 @@ class PlaybackSyncCoordinator private constructor() {
     private val listeners = CopyOnWriteArraySet<PlaybackSessionListener>()
 
     private val syncLock = Any()
-    
+
     // Quick cache to prevent infinite loops (Mobile sends to Cast -> Cast sends back to Mobile)
     // We only need to store recent command IDs to detect echoes.
     private val recentCommandIds = LinkedHashMap<String, Boolean>()
@@ -16,7 +16,7 @@ class PlaybackSyncCoordinator private constructor() {
     fun broadcastCommand(command: PlaybackCommand<*>) {
         synchronized(syncLock) {
             if (recentCommandIds.containsKey(command.commandId)) return
-            
+
             recentCommandIds[command.commandId] = true
             if (recentCommandIds.size > maxRecentCommands) {
                 recentCommandIds.remove(recentCommandIds.keys.first())

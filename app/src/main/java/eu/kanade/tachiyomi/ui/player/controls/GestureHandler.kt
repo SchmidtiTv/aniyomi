@@ -64,7 +64,6 @@ import eu.kanade.tachiyomi.ui.player.controls.components.DoubleTapSeekTriangles
 import eu.kanade.tachiyomi.ui.player.settings.AudioPreferences
 import eu.kanade.tachiyomi.ui.player.settings.GesturePreferences
 import eu.kanade.tachiyomi.ui.player.settings.PlayerPreferences
-import `is`.xyz.mpv.MPVLib
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.update
 import tachiyomi.i18n.aniyomi.AYMR
@@ -188,9 +187,12 @@ fun GestureHandler(
                         startingPosition = position.toInt()
                         startingX = it.x
                         wasPlayerAlreadyPause = viewModel.paused.value
-                        viewModel.pause()
+                        viewModel.updateIsSeeking(true)
                     },
                     onDragEnd = {
+                        viewModel.updatePlayBackPos(viewModel.seekPosition.value)
+                        viewModel.updateIsSeeking(false)
+                        viewModel.seekTo(viewModel.seekPosition.value.coerceIn(0f, duration).toInt(), preciseSeeking)
                         viewModel.gestureSeekAmount.update { null }
                         viewModel.hideSeekBar()
                         if (!wasPlayerAlreadyPause) viewModel.unpause()
@@ -206,7 +208,7 @@ fun GestureHandler(
                                     .coerceIn(0 - startingPosition, (duration - startingPosition).toInt()),
                             )
                         }
-                        viewModel.seekTo(it.coerceIn(0, duration.toInt()), preciseSeeking)
+                        viewModel.updateSeekPos(it.toFloat().coerceIn(0f, duration))
                     }
 
                     if (showSeekbar) viewModel.showSeekBar()

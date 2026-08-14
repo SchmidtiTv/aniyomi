@@ -255,7 +255,7 @@ fun EntryBottomActionMenu(
                         title = "Add to Queue",
                         icon = Icons.Outlined.AddToQueue,
                         toConfirm = false,
-                        onLongClick = {  },
+                        onLongClick = { },
                         onClick = {},
                     )
                 }

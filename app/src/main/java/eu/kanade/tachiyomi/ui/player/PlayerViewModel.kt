@@ -25,12 +25,15 @@ package eu.kanade.tachiyomi.ui.player
 import android.app.Application
 import android.content.Context
 import android.content.pm.ActivityInfo
+import android.graphics.Bitmap
 import android.media.AudioManager
 import android.net.Uri
 import android.provider.Settings
 import android.util.DisplayMetrics
 import android.view.inputmethod.InputMethodManager
 import androidx.compose.runtime.Immutable
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
@@ -52,6 +55,8 @@ import eu.kanade.tachiyomi.animesource.AnimeSource
 import eu.kanade.tachiyomi.animesource.model.ChapterType
 import eu.kanade.tachiyomi.animesource.model.Hoster
 import eu.kanade.tachiyomi.animesource.model.SerializableHoster.Companion.toHosterList
+import eu.kanade.tachiyomi.animesource.model.ThumbnailInfo
+import eu.kanade.tachiyomi.animesource.model.TileInfo
 import eu.kanade.tachiyomi.animesource.model.TimeStamp
 import eu.kanade.tachiyomi.animesource.model.Video
 import eu.kanade.tachiyomi.animesource.online.AnimeHttpSource
@@ -148,6 +153,7 @@ import java.util.Date
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.time.Duration.Companion.seconds
 
 class PlayerViewModelProviderFactory(
     private val activity: PlayerActivity,
@@ -226,7 +232,6 @@ class PlayerViewModel @JvmOverloads constructor(
     private val _selectedSubtitles = MutableStateFlow(Pair(-1, -1))
     val selectedSubtitles = _selectedSubtitles.asStateFlow()
 
-
     private val _audioTracks = MutableStateFlow<List<VideoTrack>>(emptyList())
     val audioTracks = _audioTracks.asStateFlow()
     private val _selectedAudio = MutableStateFlow(-1)
@@ -256,6 +261,22 @@ class PlayerViewModel @JvmOverloads constructor(
 
     private val _pos = MutableStateFlow(0f)
     val pos = _pos.asStateFlow()
+
+    private val _seekPosition = MutableStateFlow(0f)
+    val seekPosition = _seekPosition.asStateFlow()
+
+    private val _isSeeking = MutableStateFlow(false)
+    val isSeeking = _isSeeking.asStateFlow()
+
+    private val _thumbnailImage = MutableStateFlow<ImageBitmap?>(null)
+    val thumbnailImage = _thumbnailImage.asStateFlow()
+
+    private val thumbnailInfo = MutableStateFlow<ThumbnailInfo?>(null)
+    private val thumbnailTileCache =
+        object : LinkedHashMap<Int, Bitmap>(4, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, Bitmap>?) = size > 3
+        }
+    private var thumbnailFetchJob: Job? = null
 
     val duration = MutableStateFlow(0f)
 
@@ -532,7 +553,6 @@ class PlayerViewModel @JvmOverloads constructor(
         _selectedAudio.update { id }
     }
 
-
     fun addSubtitle(uri: Uri) {
         val url = uri.toString()
         val isContentUri = url.startsWith("content://")
@@ -604,6 +624,56 @@ class PlayerViewModel @JvmOverloads constructor(
 
     private fun consumeRemoteEventSuppression(deadline: Long): Boolean {
         return deadline == 0L || System.currentTimeMillis() > deadline
+    }
+
+    private var lastThumbnailFetch = 0L
+
+    fun updateSeekPos(pos: Float) {
+        _seekPosition.update { _ -> pos }
+
+        val thumbInfo = thumbnailInfo.value ?: return
+        val info = thumbInfo.tileInfo.lastOrNull { it.timeMs <= pos * 1000L }
+        if (info != null) {
+            val tileBitmap = thumbnailTileCache[info.imageIndex]
+            if (tileBitmap != null) {
+                createThumbnail(tileBitmap, info)
+            } else {
+                val now = System.currentTimeMillis()
+                if (now - lastThumbnailFetch < 2.seconds.inWholeMilliseconds) return
+                lastThumbnailFetch = now
+
+                thumbnailFetchJob?.cancel()
+                thumbnailFetchJob = viewModelScope.launchIO {
+                    val source = currentSource.value as? AnimeHttpSource ?: return@launchIO
+
+                    try {
+                        val tileUrl = thumbInfo.imageTileUrls[info.imageIndex]
+                        val bitmap = source.getImageTile(tileUrl)
+                        if (bitmap != null) {
+                            withUIContext {
+                                thumbnailTileCache[info.imageIndex] = bitmap
+                                createThumbnail(bitmap, info)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        if (e is CancellationException) throw e
+                        logcat(LogPriority.ERROR, e) { "Failed to fetch thumbnails tiles" }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun createThumbnail(tileBitmap: Bitmap, tileInfo: TileInfo) {
+        val thumbnail = Bitmap.createBitmap(tileBitmap, tileInfo.x, tileInfo.y, tileInfo.width, tileInfo.height)
+        _thumbnailImage.update { _ -> thumbnail.asImageBitmap() }
+    }
+
+    fun updateIsSeeking(value: Boolean) {
+        _isSeeking.update { _ -> value }
+        if (!value) {
+            _thumbnailImage.update { _ -> null }
+        }
     }
 
     fun updateReadAhead(value: Long) {
@@ -863,7 +933,7 @@ class PlayerViewModel @JvmOverloads constructor(
             ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE,
             ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE,
             ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE,
-                -> {
+            -> {
                 playerPreferences.defaultPlayerOrientationType().set(PlayerOrientation.SensorPortrait)
                 ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
             }
@@ -1049,12 +1119,18 @@ class PlayerViewModel @JvmOverloads constructor(
         if (showSeekBar) showSeekBar()
     }
 
-    fun resetHosterState() {
+    /**
+     * Reset state when changing episodes
+     */
+    fun resetState() {
         _pausedState.update { _ -> false }
         _hosterState.update { _ -> emptyList() }
         _hosterList.update { _ -> emptyList() }
         _hosterExpandedList.update { _ -> emptyList() }
         _selectedHosterVideoIndex.update { _ -> Pair(-1, -1) }
+        thumbnailTileCache.clear()
+        thumbnailFetchJob?.cancel()
+        lastThumbnailFetch = 0L
     }
 
     fun changeEpisode(previous: Boolean, autoPlay: Boolean = false) {
@@ -1466,14 +1542,19 @@ class PlayerViewModel @JvmOverloads constructor(
                     }.awaitAll()
 
                     if (hasFoundPreferredVideo.compareAndSet(false, true)) {
-                        val (hosterIdx, videoIdx) = HosterLoader.selectBestVideo(hosterState.value)
-                        if (hosterIdx == -1) {
-                            throw ExceptionWithStringResource("No available videos", AYMR.strings.no_available_videos)
+                        if (selectedHosterVideoIndex.value == Pair(-1, -1)) {
+                            val (hosterIdx, videoIdx) = HosterLoader.selectBestVideo(hosterState.value)
+                            if (hosterIdx == -1) {
+                                throw ExceptionWithStringResource(
+                                    "No available videos",
+                                    AYMR.strings.no_available_videos,
+                                )
+                            }
+
+                            val video = (hosterState.value[hosterIdx] as HosterState.Ready).videoList[videoIdx]
+
+                            loadVideo(source, video, hosterIdx, videoIdx)
                         }
-
-                        val video = (hosterState.value[hosterIdx] as HosterState.Ready).videoList[videoIdx]
-
-                        loadVideo(source, video, hosterIdx, videoIdx)
                     }
                 }
             } catch (e: CancellationException) {
@@ -1547,8 +1628,16 @@ class PlayerViewModel @JvmOverloads constructor(
 
         qualityIndex = Pair(hosterIndex, videoIndex)
 
+        viewModelScope.launchIO {
+            loadThumbnails(resolvedVideo, source)
+        }
+
         activity.setVideo(resolvedVideo)
         return true
+    }
+
+    fun updateVideo(video: Video) {
+        _currentVideo.update { _ -> video }
     }
 
     fun onVideoClicked(hosterIndex: Int, videoIndex: Int) {
@@ -1598,6 +1687,33 @@ class PlayerViewModel @JvmOverloads constructor(
             }
 
             is HosterState.Loading, is HosterState.Error -> {}
+        }
+    }
+
+    suspend fun loadThumbnails(video: Video, source: AnimeSource?) {
+        if (source is AnimeHttpSource) {
+            try {
+                val thumbInfo = source.getVideoThumbnails(video)
+                if (thumbInfo != null) {
+                    thumbnailInfo.update { _ ->
+                        ThumbnailInfo(
+                            tileInfo = thumbInfo.tileInfo.sortedBy { it.timeMs },
+                            imageTileUrls = thumbInfo.imageTileUrls,
+                        )
+                    }
+
+                    // Preload first 2 tilemaps
+                    thumbInfo.imageTileUrls.take(2).forEachIndexed { index, tileUrl ->
+                        val bitmap = source.getImageTile(tileUrl)
+                        if (bitmap != null) {
+                            thumbnailTileCache[index] = bitmap
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                if (e is CancellationException) throw e
+                logcat(LogPriority.ERROR, e) { "Failed to fetch thumbnails" }
+            }
         }
     }
 

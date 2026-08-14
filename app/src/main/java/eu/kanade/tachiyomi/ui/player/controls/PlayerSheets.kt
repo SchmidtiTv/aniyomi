@@ -25,7 +25,6 @@ import dev.vivvvek.seeker.Segment
 import eu.kanade.tachiyomi.ui.player.ArtType
 import eu.kanade.tachiyomi.ui.player.Decoder
 import eu.kanade.tachiyomi.ui.player.Panels
-import eu.kanade.tachiyomi.ui.player.PlayerViewModel
 import eu.kanade.tachiyomi.ui.player.PlayerViewModel.VideoTrack
 import eu.kanade.tachiyomi.ui.player.Sheets
 import eu.kanade.tachiyomi.ui.player.controls.components.sheets.AudioTracksSheet
@@ -51,7 +50,6 @@ fun PlayerSheets(
     selectedSubtitles: ImmutableList<Int>,
     onAddSubtitle: (Uri) -> Unit,
     onSelectSubtitle: (Int) -> Unit,
-
 
     // audio sheet
     audioTracks: ImmutableList<VideoTrack>,
@@ -121,7 +119,7 @@ fun PlayerSheets(
             )
         }
         Sheets.CastSelection -> {
-            CastSheet (
+            CastSheet(
                 onDismissRequest = onDismissRequest,
             )
         }

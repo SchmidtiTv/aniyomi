@@ -82,7 +82,7 @@ data object MoreTab : Tab {
             onClickPlayerSettings = { navigator.push(PlayerSettingsScreen(mainSettings = false)) },
             onClickSettings = { navigator.push(SettingsScreen()) },
             onClickAbout = { navigator.push(SettingsScreen(SettingsScreen.Destination.About)) },
-            onClickCast = { logcat { "MoreTab: Clicked on Cast to Tv." } }
+            onClickCast = { logcat { "MoreTab: Clicked on Cast to Tv." } },
         )
     }
 }

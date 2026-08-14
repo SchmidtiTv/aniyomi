@@ -19,13 +19,18 @@ data class PlaybackCommand<T>(
 enum class PlaybackCommandType {
     PLAY,                       // Triggered when playback starts or resumes.
     PAUSE,                      // Triggered when playback is paused.
-    SEEK_TO,                    // Triggered when the user seeks to a new position. The newValue is the target position in milliseconds.
-    LOAD_MEDIA,                 // Triggered when a new media item is loaded. The newValue is the mediaId of the loaded item.
-    SET_SPEED,                  // Triggered when the playback speed is changed. The newValue is the new speed (e.g., 1.0 for normal speed).
-    SET_TRACK_SELECTION,        // Triggered when the user changes audio or subtitle tracks. The newValue is a PlaybackTrackSelection object containing the selected track IDs.
+    // Triggered when the user seeks. The newValue is the target position in milliseconds.
+    SEEK_TO,
+    // Triggered when a media item is loaded. The newValue is its mediaId.
+    LOAD_MEDIA,
+    // Triggered when playback speed changes. The newValue is the new speed.
+    SET_SPEED,
+    // Triggered when audio or subtitle tracks change. The newValue contains the selected track IDs.
+    SET_TRACK_SELECTION,
     STOP,                       // Triggered when playback is stopped, e.g The player gets closed.
     REQUEST_FULL_STATE,         // Triggered by a late-joiner (like UI) asking for the current state.
-    SYNC_STATE,                 // Triggered by the active player in response to REQUEST_FULL_STATE. The newValue is a PlaybackSessionState object.
+    // Triggered by the active player in response to REQUEST_FULL_STATE. The newValue is a PlaybackSessionState.
+    SYNC_STATE,
 }
 
 data class PlaybackSessionListener(

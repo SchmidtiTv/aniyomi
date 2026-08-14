@@ -39,7 +39,6 @@ import android.media.session.PlaybackState
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
-import android.os.SystemClock
 import android.util.Log
 import android.util.Rational
 import android.view.KeyEvent
@@ -47,7 +46,11 @@ import android.view.View
 import android.view.WindowManager
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -72,19 +75,19 @@ import eu.kanade.tachiyomi.data.notification.Notifications
 import eu.kanade.tachiyomi.databinding.PlayerLayoutBinding
 import eu.kanade.tachiyomi.network.NetworkPreferences
 import eu.kanade.tachiyomi.ui.base.activity.BaseActivity
+import eu.kanade.tachiyomi.ui.player.controls.CastingPlaceholder
 import eu.kanade.tachiyomi.ui.player.controls.PlayerControls
 import eu.kanade.tachiyomi.ui.player.settings.AdvancedPlayerPreferences
 import eu.kanade.tachiyomi.ui.player.settings.AudioPreferences
 import eu.kanade.tachiyomi.ui.player.settings.GesturePreferences
 import eu.kanade.tachiyomi.ui.player.settings.PlayerPreferences
-import eu.kanade.tachiyomi.ui.player.sync.LoadedVideoEvent
 import eu.kanade.tachiyomi.ui.player.sync.PlaybackCommand
 import eu.kanade.tachiyomi.ui.player.sync.PlaybackCommandType
 import eu.kanade.tachiyomi.ui.player.sync.PlaybackSyncCoordinator
 import eu.kanade.tachiyomi.ui.player.sync.SyncOrigin
-import eu.kanade.tachiyomi.ui.player.sync.VideoType
 import eu.kanade.tachiyomi.ui.player.utils.ChapterUtils
 import eu.kanade.tachiyomi.ui.player.utils.ChapterUtils.Companion.getStringRes
+import eu.kanade.tachiyomi.util.cast.CastHandler
 import eu.kanade.tachiyomi.util.system.powerManager
 import eu.kanade.tachiyomi.util.system.toShareIntent
 import eu.kanade.tachiyomi.util.system.toast
@@ -268,30 +271,40 @@ class PlayerActivity : BaseActivity() {
 
         Log.d("PlayerActivity", "onCreate - ${viewModel.currentAnime.value}")
 
-
         binding.controls.setContent {
             TachiyomiTheme {
-                PlayerControls(
-                    viewModel = viewModel,
-                    onBackPress = {
-                        if (isPipSupportedAndEnabled && player.paused == false && playerPreferences.pipOnExit().get()) {
-                            enterPictureInPictureMode(createPipParams())
-                        } else {
-                            finish()
-                        }
-                    },
-                    modifier = Modifier.onGloballyPositioned {
-                        pipRect = run {
-                            val boundsInWindow = it.boundsInWindow()
-                            Rect(
-                                boundsInWindow.left.toInt(),
-                                boundsInWindow.top.toInt(),
-                                boundsInWindow.right.toInt(),
-                                boundsInWindow.bottom.toInt(),
-                            )
-                        }
-                    },
-                )
+                val castHandler = remember { CastHandler.getInstance(this) }
+                val isCasting by castHandler.connectionState.collectAsState()
+
+                Box(modifier = Modifier.fillMaxSize()) {
+                    if (isCasting) {
+                        CastingPlaceholder(deviceName = castHandler.getCurrentRoute().name)
+                    }
+                    PlayerControls(
+                        viewModel = viewModel,
+                        onBackPress = {
+                            if (isPipSupportedAndEnabled &&
+                                player.paused == false &&
+                                playerPreferences.pipOnExit().get()
+                            ) {
+                                enterPictureInPictureMode(createPipParams())
+                            } else {
+                                finish()
+                            }
+                        },
+                        modifier = Modifier.onGloballyPositioned {
+                            pipRect = run {
+                                val boundsInWindow = it.boundsInWindow()
+                                Rect(
+                                    boundsInWindow.left.toInt(),
+                                    boundsInWindow.top.toInt(),
+                                    boundsInWindow.right.toInt(),
+                                    boundsInWindow.bottom.toInt(),
+                                )
+                            }
+                        },
+                    )
+                }
             }
         }
 
@@ -712,16 +725,18 @@ class PlayerActivity : BaseActivity() {
             }
 
             "seeking" -> {
-                if (value)
+                val positionMs = player.timePos?.times(1000L)
+                if (value && positionMs != null && viewModel.shouldBroadcastSeekEvent()) {
                     playbackCoordinator.addEvent(
                         PlaybackCommand(
                             commandId = UUID.randomUUID().toString(),
-                            eventTime = SystemClock.elapsedRealtime(),
+                            eventTime = System.currentTimeMillis(),
                             commandType = PlaybackCommandType.SEEK_TO,
-                            newValue = player.timePos,
+                            newValue = positionMs,
                             origin = SyncOrigin.LOCAL,
                         ),
                     )
+                }
                 viewModel.updatePlaybackLoadingState(value)
             }
 
@@ -758,15 +773,17 @@ class PlayerActivity : BaseActivity() {
         when (property) {
             "speed" -> {
                 viewModel.updatePlaybackSpeed(value.toFloat())
-                playbackCoordinator.addEvent(
-                    PlaybackCommand(
-                        commandId = UUID.randomUUID().toString(),
-                        eventTime = SystemClock.elapsedRealtime(),
-                        commandType = PlaybackCommandType.SET_SPEED,
-                        newValue = value,
-                        origin = SyncOrigin.LOCAL,
-                    ),
-                )
+                if (viewModel.shouldBroadcastSpeedEvent()) {
+                    playbackCoordinator.addEvent(
+                        PlaybackCommand(
+                            commandId = UUID.randomUUID().toString(),
+                            eventTime = System.currentTimeMillis(),
+                            commandType = PlaybackCommandType.SET_SPEED,
+                            newValue = value,
+                            origin = SyncOrigin.LOCAL,
+                        ),
+                    )
+                }
             }
             "video-params/aspect" -> if (isPipSupportedAndEnabled) createPipParams()
         }
@@ -1248,21 +1265,14 @@ class PlayerActivity : BaseActivity() {
     }
 
     private fun emitLoadedMediaEvent() {
-        val video = viewModel.currentVideo.value ?: return
+        val media = viewModel.currentPlaybackMedia() ?: return
 
         playbackCoordinator.addEvent(
             PlaybackCommand(
                 commandId = UUID.randomUUID().toString(),
-                eventTime = SystemClock.elapsedRealtime(),
+                eventTime = System.currentTimeMillis(),
                 commandType = PlaybackCommandType.LOAD_MEDIA,
-                newValue = LoadedVideoEvent(
-                    videoType = VideoType.VIDEO,
-                    video = video,
-                    episode = viewModel.currentEpisode.value,
-                    anime = viewModel.currentAnime.value,
-                    title = viewModel.animeTitle.value,
-                    subtitle = viewModel.mediaTitle.value
-                ),
+                newValue = media,
                 origin = SyncOrigin.LOCAL,
             ),
         )

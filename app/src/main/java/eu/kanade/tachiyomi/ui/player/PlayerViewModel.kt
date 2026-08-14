@@ -183,8 +183,10 @@ class PlayerViewModel @JvmOverloads constructor(
     private val libraryPreferences: LibraryPreferences = Injekt.get(),
     uiPreferences: UiPreferences = Injekt.get(),
 ) : ViewModel() {
-    private val _playbackSyncCoordinator = PlaybackSyncCoordinator.getInstance()
+    private val playbackSyncCoordinator = PlaybackSyncCoordinator.getInstance()
     private val playbackSyncListenerId = "PlayerViewModel-${UUID.randomUUID()}"
+    private var suppressNextSeekEventUntil = 0L
+    private var suppressNextSpeedEventUntil = 0L
 
     private val _currentPlaylist = MutableStateFlow<List<Episode>>(emptyList())
     val currentPlaylist = _currentPlaylist.asStateFlow()
@@ -320,6 +322,14 @@ class PlayerViewModel @JvmOverloads constructor(
     val primaryButton = _primaryButton.asStateFlow()
 
     init {
+        playbackSyncCoordinator.addListener(
+            PlaybackListener(
+                playbackSyncListenerId,
+                ListenerType.LOCAL_PLAYER,
+                ::handleCommand,
+            ),
+        )
+
         viewModelScope.launchIO {
             try {
                 val buttons = getCustomButtons.getAll()
@@ -333,15 +343,6 @@ class PlayerViewModel @JvmOverloads constructor(
                 }
                 activity.setupCustomButtons(buttons)
                 _customButtons.update { _ -> CustomButtonFetchState.Success(buttons.toImmutableList()) }
-
-                _playbackSyncCoordinator.addListener(
-                    PlaybackListener(
-                        playbackSyncListenerId,
-                        ListenerType.LOCAL_PLAYER,
-                        ::handleCommand,
-                    ),
-                )
-
             } catch (e: Exception) {
                 logcat(LogPriority.ERROR, e)
                 _customButtons.update { _ -> CustomButtonFetchState.Error(e.message ?: "Unable to fetch buttons") }
@@ -589,6 +590,22 @@ class PlayerViewModel @JvmOverloads constructor(
         MPVLib.setPropertyDouble("speed", value.toDouble())
     }
 
+    fun shouldBroadcastSeekEvent(): Boolean {
+        return consumeRemoteEventSuppression(suppressNextSeekEventUntil).also { shouldBroadcast ->
+            if (!shouldBroadcast) suppressNextSeekEventUntil = 0L
+        }
+    }
+
+    fun shouldBroadcastSpeedEvent(): Boolean {
+        return consumeRemoteEventSuppression(suppressNextSpeedEventUntil).also { shouldBroadcast ->
+            if (!shouldBroadcast) suppressNextSpeedEventUntil = 0L
+        }
+    }
+
+    private fun consumeRemoteEventSuppression(deadline: Long): Boolean {
+        return deadline == 0L || System.currentTimeMillis() > deadline
+    }
+
     fun updateReadAhead(value: Long) {
         _readAhead.update { value.toFloat() }
     }
@@ -643,6 +660,7 @@ class PlayerViewModel @JvmOverloads constructor(
     private fun applyPauseState(
         paused: Boolean,
         updatePlayer: Boolean,
+        emitCommand: Boolean = true,
     ) {
         if (_paused.value == paused && (!updatePlayer || activity.player.paused == paused)) return
 
@@ -652,10 +670,12 @@ class PlayerViewModel @JvmOverloads constructor(
 
         _paused.update { paused }
 
-        if (paused) {
-            emitPlaybackCommand(PlaybackCommandType.PAUSE, null)
-        } else {
-            emitPlaybackCommand(PlaybackCommandType.PLAY, null)
+        if (emitCommand) {
+            if (paused) {
+                emitPlaybackCommand(PlaybackCommandType.PAUSE, null)
+            } else {
+                emitPlaybackCommand(PlaybackCommandType.PLAY, null)
+            }
         }
     }
 
@@ -1109,7 +1129,7 @@ class PlayerViewModel @JvmOverloads constructor(
     }
 
     override fun onCleared() {
-        _playbackSyncCoordinator.removeListener(playbackSyncListenerId)
+        playbackSyncCoordinator.removeListener(playbackSyncListenerId)
         if (currentEpisode.value != null) {
             saveWatchingProgress(currentEpisode.value!!)
             episodeToDownload?.let {
@@ -1628,11 +1648,32 @@ class PlayerViewModel @JvmOverloads constructor(
         }
     }
 
-    private fun currentPlaybackMedia(): LoadedVideoEvent<*>? {
+    fun currentPlaybackMedia(): LoadedVideoEvent<*>? {
         return currentVideo.value?.let { video ->
-            LoadedVideoEvent(VideoType.VIDEO, video, animeTitle.value, mediaTitle.value)
+            val sourceHeaders = (currentSource.value as? AnimeHttpSource)?.headers
+            val headers = (video.headers ?: sourceHeaders)
+                ?.toMultimap()
+                ?.mapValues { (_, values) -> values.firstOrNull().orEmpty() }
+                .orEmpty()
+
+            LoadedVideoEvent(
+                videoType = VideoType.VIDEO,
+                video = video,
+                title = animeTitle.value,
+                subtitle = mediaTitle.value,
+                episode = currentEpisode.value,
+                anime = currentAnime.value,
+                headers = headers,
+            )
         } ?: currentEpisode.value?.let { episode ->
-            LoadedVideoEvent(VideoType.EPISODE, episode, animeTitle.value, mediaTitle.value)
+            LoadedVideoEvent(
+                videoType = VideoType.EPISODE,
+                video = episode,
+                title = animeTitle.value,
+                subtitle = mediaTitle.value,
+                episode = episode,
+                anime = currentAnime.value,
+            )
         }
     }
 
@@ -1661,6 +1702,48 @@ class PlayerViewModel @JvmOverloads constructor(
         if (command.origin == SyncOrigin.LOCAL) return
 
         when (command.commandType) {
+            PlaybackCommandType.PLAY -> {
+                applyPauseState(paused = false, updatePlayer = true, emitCommand = false)
+            }
+
+            PlaybackCommandType.PAUSE -> {
+                applyPauseState(paused = true, updatePlayer = true, emitCommand = false)
+            }
+
+            PlaybackCommandType.SEEK_TO -> {
+                val positionMs = (command.newValue as? Number)?.toLong() ?: return
+                val durationMs = activity.player.duration?.times(1000L)
+                val boundedPositionMs = durationMs?.let { positionMs.coerceIn(0L, it) }
+                    ?: positionMs.coerceAtLeast(0L)
+
+                suppressNextSeekEventUntil = System.currentTimeMillis() + REMOTE_EVENT_SUPPRESSION_MS
+                MPVLib.command(
+                    arrayOf(
+                        "seek",
+                        (boundedPositionMs / 1000.0).toString(),
+                        "absolute+exact",
+                    ),
+                )
+            }
+
+            PlaybackCommandType.SET_SPEED -> {
+                val speed = (command.newValue as? Number)?.toDouble() ?: return
+                if (speed <= 0.0) return
+
+                suppressNextSpeedEventUntil = System.currentTimeMillis() + REMOTE_EVENT_SUPPRESSION_MS
+                MPVLib.setPropertyDouble("speed", speed)
+            }
+
+            PlaybackCommandType.SET_TRACK_SELECTION -> {
+                val selection = command.newValue as? PlaybackTrackSelection ?: return
+                selection.audioTrackId?.let { activity.player.aid = it }
+                selection.subtitleTrackId?.let { activity.player.sid = it }
+            }
+
+            PlaybackCommandType.STOP -> {
+                MPVLib.command(arrayOf("stop"))
+            }
+
             PlaybackCommandType.REQUEST_FULL_STATE -> {
                 val media = currentPlaybackMedia() ?: return
 
@@ -1683,10 +1766,8 @@ class PlayerViewModel @JvmOverloads constructor(
                     "PlayerViewModel/handleCommand",
                     LogPriority.WARN,
                 ) { "Received unhandled playback command: ${command.commandType} with value ${command.newValue}" }
-
             }
         }
-
     }
 
     private fun <T> emitPlaybackCommand(
@@ -1694,7 +1775,7 @@ class PlayerViewModel @JvmOverloads constructor(
         newValue: T,
         commandId: String = UUID.randomUUID().toString(),
     ) {
-        _playbackSyncCoordinator.addEvent(
+        playbackSyncCoordinator.addEvent(
             PlaybackEvent(
                 commandId = commandId,
                 eventTime = System.currentTimeMillis(),
@@ -1703,6 +1784,10 @@ class PlayerViewModel @JvmOverloads constructor(
                 origin = SyncOrigin.LOCAL,
             ),
         )
+    }
+
+    private companion object {
+        const val REMOTE_EVENT_SUPPRESSION_MS = 2_000L
     }
 
     /**

@@ -20,6 +20,7 @@ private val BYTE_RANGE_REGEX = Regex("bytes=(\\d+)-(.*)")
 internal suspend fun ApplicationCall.handleLocalFile(
     context: Context,
     originalUrl: String,
+    mimeType: String?,
 ) {
     val uri = originalUrl.toUri()
     logcat { "Handling local file URI: $uri" }
@@ -27,7 +28,6 @@ internal suspend fun ApplicationCall.handleLocalFile(
     val fileSize = context.resolveFileSize(uri)
     logcat { "Resolved file size: $fileSize bytes" }
 
-    val mimeType = getMimeType(originalUrl)
     val range = request.headers["Range"].parseByteRange(fileSize)
 
     if (range != null) {
@@ -69,7 +69,7 @@ private fun Context.queryOpenableSize(uri: Uri): Long {
 private suspend fun ApplicationCall.respondLocalFileRange(
     context: Context,
     uri: Uri,
-    mimeType: String,
+    mimeType: String?,
     fileSize: Long,
     range: ByteRange,
 ) {
@@ -77,7 +77,7 @@ private suspend fun ApplicationCall.respondLocalFileRange(
     response.header(HttpHeaders.AcceptRanges, "bytes")
 
     respondOutputStream(
-        contentType = ContentType.parse(mimeType),
+        contentType = mimeType?.let(ContentType::parse),
         status = HttpStatusCode.PartialContent,
         contentLength = range.length,
     ) {
@@ -94,12 +94,12 @@ private suspend fun ApplicationCall.respondLocalFileRange(
 private suspend fun ApplicationCall.respondLocalFile(
     context: Context,
     uri: Uri,
-    mimeType: String,
+    mimeType: String?,
     fileSize: Long,
 ) {
     response.header(HttpHeaders.AcceptRanges, "bytes")
     respondOutputStream(
-        contentType = ContentType.parse(mimeType),
+        contentType = mimeType?.let(ContentType::parse),
         contentLength = fileSize.takeIf { it > 0L },
     ) {
         try {
@@ -143,16 +143,6 @@ private fun InputStream.drainBytes(bytesToDrain: Long) {
         val read = read(buffer, 0, toRead)
         if (read == -1) return
         bytesDrained += read
-    }
-}
-
-private fun getMimeType(url: String): String {
-    val lowerUrl = url.lowercase()
-    return when {
-        lowerUrl.endsWith(".mkv") -> "video/x-matroska"
-        lowerUrl.endsWith(".webm") -> "video/webm"
-        lowerUrl.endsWith(".m3u8") -> "application/x-mpegURL"
-        else -> "video/mp4"
     }
 }
 

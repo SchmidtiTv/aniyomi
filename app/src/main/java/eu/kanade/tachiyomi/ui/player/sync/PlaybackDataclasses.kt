@@ -50,7 +50,8 @@ data class LoadedVideoEvent<T>(
     val title: String,
     val subtitle: String,
     val episode: Episode? = null,
-    val anime: Anime? = null
+    val anime: Anime? = null,
+    val headers: Map<String, String> = emptyMap(),
 )
 
 enum class VideoType {

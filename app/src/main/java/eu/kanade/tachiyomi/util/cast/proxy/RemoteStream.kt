@@ -17,7 +17,6 @@ import java.net.URI
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 
-
 private val HLS_CONTENT_TYPES = setOf(
     "application/vnd.apple.mpegurl",
     "application/x-mpegurl",
@@ -34,8 +33,11 @@ private fun String.urlEncode(): String =
     URLEncoder.encode(this, StandardCharsets.UTF_8.name())
 
 private fun resolveSegmentUrl(baseUrl: String, href: String): String =
-    if (href.startsWith("http://") || href.startsWith("https://")) href
-    else URI(baseUrl).resolve(href).toString()
+    if (href.startsWith("http://") || href.startsWith("https://")) {
+        href
+    } else {
+        URI(baseUrl).resolve(href).toString()
+    }
 
 private fun rewriteM3u8(
     content: String,
@@ -86,7 +88,7 @@ internal suspend fun ApplicationCall.handleRemoteStream(
     val isHls = contentTypeStr.isHlsContentType() || url.isM3u8Url()
 
     if (isHls) {
-        val proxyBaseUrl = "http://${request.host()}:${request.port()}/stream"
+        val proxyBaseUrl = "http://${request.host()}:${request.port()}/proxy"
         val rewritten = rewriteM3u8(
             content = response.bodyAsText(),
             originalUrl = url,

@@ -10,9 +10,9 @@ fun String.toFFmpegString(context: Context): String {
     return File(this).getUriCompat(context).toFFmpegString(context)
 }
 
-fun Uri.toFFmpegString(context: Context): String {
+fun Uri.toFFmpegString(context: Context, mode: String = "rw"): String {
     return if (this.scheme == "content") {
-        FFmpegKitConfig.getSafParameter(context, this, "rw")
+        FFmpegKitConfig.getSafParameter(context, this, mode)
     } else {
         this.path!!
     }.replace("\"", "\\\"")

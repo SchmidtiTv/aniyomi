@@ -1,10 +1,13 @@
 package eu.kanade.tachiyomi.util.cast
 
 import android.content.Context
-import android.net.Uri
+import android.os.SystemClock
+import android.widget.Toast
+import androidx.core.net.toUri
 import androidx.mediarouter.media.MediaRouteSelector
 import androidx.mediarouter.media.MediaRouter
 import com.google.android.gms.cast.CastMediaControlIntent
+import com.google.android.gms.cast.MediaError
 import com.google.android.gms.cast.MediaInfo
 import com.google.android.gms.cast.MediaLoadRequestData
 import com.google.android.gms.cast.MediaMetadata
@@ -28,8 +31,12 @@ import eu.kanade.tachiyomi.ui.player.sync.PlaybackSyncState
 import eu.kanade.tachiyomi.ui.player.sync.SyncOrigin
 import eu.kanade.tachiyomi.ui.player.sync.VideoType
 import eu.kanade.tachiyomi.util.cast.proxy.Server
+import eu.kanade.tachiyomi.util.system.toast
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.DelicateCoroutinesApi
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import logcat.LogPriority
 import tachiyomi.core.common.util.lang.launchUI
@@ -37,7 +44,7 @@ import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.entries.anime.model.AnimeCover
 import tachiyomi.domain.entries.anime.model.asAnimeCover
 import java.util.UUID
-import androidx.core.net.toUri
+import kotlin.math.abs
 
 data class CurrentVideo(
     val videoId: String,
@@ -45,7 +52,43 @@ data class CurrentVideo(
     val videoUrl: String,
     val videoSubTitle: String,
     val animeCover: AnimeCover? = null,
+    val headers: Map<String, String> = emptyMap(),
 )
+
+internal data class PlaybackPositionAnchor(
+    val positionMs: Long,
+    val capturedAtMs: Long,
+    val isPlaying: Boolean,
+    val playbackSpeed: Double,
+) {
+    fun positionAt(nowMs: Long): Long {
+        val elapsedMs = (nowMs - capturedAtMs).coerceAtLeast(0L)
+        val progressedMs = if (isPlaying) (elapsedMs * playbackSpeed).toLong() else 0L
+        return (positionMs + progressedMs).coerceAtLeast(0L)
+    }
+}
+
+private data class PendingPositionSync(
+    val contentId: String,
+    val anchor: PlaybackPositionAnchor,
+)
+
+private data class RemotePlaybackSnapshot(
+    val contentId: String,
+    val positionMs: Long,
+    val capturedAtMs: Long,
+    val isPlaying: Boolean,
+    val playbackSpeed: Double,
+) {
+    fun expectedPositionAt(nowMs: Long): Long {
+        val elapsedMs = (nowMs - capturedAtMs).coerceAtLeast(0L)
+        return if (isPlaying) {
+            positionMs + (elapsedMs * playbackSpeed).toLong()
+        } else {
+            positionMs
+        }
+    }
+}
 
 class CastHandler private constructor(context: Context) {
     private val applicationContext: Context = context.applicationContext
@@ -56,8 +99,16 @@ class CastHandler private constructor(context: Context) {
 
     private var currentSession: CastSession? = null
     private var activeMedia: CurrentVideo? = null
+    private var mediaLoadJob: Job? = null
+    private var activeCastContentId: String? = null
+    private var activePositionAnchor: PlaybackPositionAnchor? = null
+    private var pendingPositionSync: PendingPositionSync? = null
+    private var lastRemotePlaybackSnapshot: RemotePlaybackSnapshot? = null
+    private var lastRemotePlayerState: Int? = null
 
     private var playingState = MutableStateFlow(false)
+    private val _connectionState = MutableStateFlow(false)
+    val connectionState = _connectionState.asStateFlow()
 
     val mediaRouter: MediaRouter = MediaRouter.getInstance(applicationContext)
 
@@ -74,7 +125,13 @@ class CastHandler private constructor(context: Context) {
 
     private fun onNewSession(session: CastSession) {
         currentSession = session
+        _connectionState.update { true }
         activeMedia = null
+        activeCastContentId = null
+        activePositionAnchor = null
+        pendingPositionSync = null
+        lastRemotePlaybackSnapshot = null
+        lastRemotePlayerState = null
         Server.start(applicationContext)
         session.remoteMediaClient?.registerCallback(remoteMediaListener)
 
@@ -99,48 +156,164 @@ class CastHandler private constructor(context: Context) {
 
         override fun onSessionStartFailed(session: CastSession, error: Int) {
             currentSession = null
+            _connectionState.update { false }
             activeMedia = null
         }
 
         override fun onSessionEnding(session: CastSession) = Unit
         override fun onSessionResumeFailed(session: CastSession, error: Int) {
             currentSession = null
+            _connectionState.update { false }
             activeMedia = null
         }
 
         override fun onSessionSuspended(session: CastSession, reason: Int) {
             currentSession = null
+            _connectionState.update { false }
             activeMedia = null
         }
 
         override fun onSessionEnded(session: CastSession, error: Int) {
+            mediaLoadJob?.cancel()
+            mediaLoadJob = null
             currentSession = null
+            _connectionState.update { false }
             activeMedia = null
+            activeCastContentId = null
+            activePositionAnchor = null
+            pendingPositionSync = null
+            lastRemotePlaybackSnapshot = null
+            lastRemotePlayerState = null
             Server.stop()
         }
     }
 
     private val remoteMediaListener = object : RemoteMediaClient.Callback() {
-        private val remoteMediaClient = currentSession?.remoteMediaClient
-
         override fun onStatusUpdated() {
-            val status = remoteMediaClient?.mediaStatus ?: return
+            val status = currentSession?.remoteMediaClient?.mediaStatus ?: return
+            val positionWasLocallyRequested = correctPendingPosition(status)
 
-            var newState = PlaybackCommandType.PAUSE
-            if (status.playerState == MediaStatus.PLAYER_STATE_PLAYING)
-                newState = PlaybackCommandType.PLAY
+            emitRemotePlaybackState(status)
+            updateRemotePosition(status, positionWasLocallyRequested)
+        }
 
+        override fun onMediaError(error: MediaError) {
+            logcat(LogPriority.ERROR) {
+                "Cast media error: detailedErrorCode=${error.detailedErrorCode} " +
+                    "reason=${error.reason} customData=${error.customData}"
+            }
+        }
+    }
 
+    private fun correctPendingPosition(status: MediaStatus): Boolean {
+        val pending = pendingPositionSync ?: return false
+        if (status.mediaInfo?.contentId != pending.contentId) return false
+        if (
+            status.playerState != MediaStatus.PLAYER_STATE_PLAYING &&
+            status.playerState != MediaStatus.PLAYER_STATE_PAUSED
+        ) {
+            return true
+        }
+
+        val expectedPositionMs = pending.anchor.positionAt(System.currentTimeMillis())
+        val driftMs = expectedPositionMs - status.streamPosition
+        if (abs(driftMs) < POSITION_DRIFT_THRESHOLD_MS) {
+            pendingPositionSync = null
+            return true
+        }
+
+        logcat {
+            "Correcting Cast startup drift by ${driftMs}ms: " +
+                "receiver=${status.streamPosition} expected=$expectedPositionMs"
+        }
+        currentSession?.remoteMediaClient?.seek(
+            MediaSeekOptions.Builder()
+                .setPosition(expectedPositionMs)
+                .build(),
+        )
+        return true
+    }
+
+    private fun emitRemotePlaybackState(status: MediaStatus) {
+        val commandType = when (status.playerState) {
+            MediaStatus.PLAYER_STATE_PLAYING -> PlaybackCommandType.PLAY
+            MediaStatus.PLAYER_STATE_PAUSED -> PlaybackCommandType.PAUSE
+            MediaStatus.PLAYER_STATE_IDLE -> PlaybackCommandType.STOP.takeIf {
+                lastRemotePlayerState == MediaStatus.PLAYER_STATE_PLAYING ||
+                    lastRemotePlayerState == MediaStatus.PLAYER_STATE_PAUSED
+            }
+            else -> null
+        }
+
+        when (status.playerState) {
+            MediaStatus.PLAYER_STATE_PLAYING -> playingState.update { true }
+            MediaStatus.PLAYER_STATE_PAUSED,
+            MediaStatus.PLAYER_STATE_IDLE,
+            -> playingState.update { false }
+        }
+        if (commandType == null || lastRemotePlayerState == status.playerState) return
+
+        lastRemotePlayerState = status.playerState
+        playbackCoordinator.addEvent(
+            PlaybackCommand(
+                commandId = UUID.randomUUID().toString(),
+                commandType = commandType,
+                eventTime = System.currentTimeMillis(),
+                origin = SyncOrigin.CAST,
+                newValue = null,
+            ),
+        )
+    }
+
+    private fun updateRemotePosition(status: MediaStatus, positionWasLocallyRequested: Boolean) {
+        val contentId = status.mediaInfo?.contentId ?: return
+        val nowMs = SystemClock.elapsedRealtime()
+        val currentSnapshot = RemotePlaybackSnapshot(
+            contentId = contentId,
+            positionMs = status.streamPosition,
+            capturedAtMs = nowMs,
+            isPlaying = status.playerState == MediaStatus.PLAYER_STATE_PLAYING,
+            playbackSpeed = status.playbackRate,
+        )
+        val previousSnapshot = lastRemotePlaybackSnapshot
+        lastRemotePlaybackSnapshot = currentSnapshot
+
+        if (
+            previousSnapshot != null &&
+            previousSnapshot.contentId == contentId &&
+            abs(status.playbackRate - previousSnapshot.playbackSpeed) >= PLAYBACK_RATE_CHANGE_THRESHOLD
+        ) {
             playbackCoordinator.addEvent(
                 PlaybackCommand(
                     commandId = UUID.randomUUID().toString(),
-                    commandType = newState,
+                    commandType = PlaybackCommandType.SET_SPEED,
                     eventTime = System.currentTimeMillis(),
                     origin = SyncOrigin.CAST,
-                    newValue = null,
+                    newValue = status.playbackRate,
                 ),
             )
         }
+
+        if (
+            positionWasLocallyRequested ||
+            previousSnapshot == null ||
+            previousSnapshot.contentId != contentId
+        ) {
+            return
+        }
+
+        val expectedPositionMs = previousSnapshot.expectedPositionAt(nowMs)
+        if (abs(status.streamPosition - expectedPositionMs) < REMOTE_SEEK_THRESHOLD_MS) return
+
+        playbackCoordinator.addEvent(
+            PlaybackCommand(
+                commandId = UUID.randomUUID().toString(),
+                commandType = PlaybackCommandType.SEEK_TO,
+                eventTime = System.currentTimeMillis(),
+                origin = SyncOrigin.CAST,
+                newValue = status.streamPosition,
+            ),
+        )
     }
 
     init {
@@ -171,6 +344,7 @@ class CastHandler private constructor(context: Context) {
                     videoUrl = video.videoUrl,
                     videoSubTitle = media.subtitle,
                     animeCover = media.anime?.asAnimeCover(),
+                    headers = media.headers,
                 )
             }
 
@@ -187,19 +361,41 @@ class CastHandler private constructor(context: Context) {
         }
     }
 
-    private fun handleOpenVideoCommand(media: LoadedVideoEvent<*>, newCurrentVideo: CurrentVideo) {
-        logcat { "CastHandler: Processing video event for ${media.videoType} | Current Video ${activeMedia.toString()} | Build media: $newCurrentVideo " }
+    private fun handleOpenVideoCommand(
+        media: LoadedVideoEvent<*>,
+        newCurrentVideo: CurrentVideo,
+        positionAnchor: PlaybackPositionAnchor,
+    ) {
+        activePositionAnchor = positionAnchor
+        logcat {
+            "CastHandler: Processing video event for ${media.videoType} | Current Video $activeMedia | Build media: $newCurrentVideo "
+        }
 
-        if (activeMedia?.videoId == newCurrentVideo.videoId && activeMedia?.videoUrl == newCurrentVideo.videoUrl)
+        if (activeMedia?.videoId == newCurrentVideo.videoId && activeMedia?.videoUrl == newCurrentVideo.videoUrl) {
+            seekToAnchor(positionAnchor)
             return
+        }
 
         activeMedia = newCurrentVideo
 
-        loadVideo(
+        loadVideoAtPosition(
             originalUrl = newCurrentVideo.videoUrl,
+            headers = newCurrentVideo.headers,
             title = newCurrentVideo.videoTitle,
             subtitle = newCurrentVideo.videoSubTitle,
             animeCover = newCurrentVideo.animeCover,
+            positionAnchor = positionAnchor,
+        )
+    }
+
+    private fun seekToAnchor(anchor: PlaybackPositionAnchor) {
+        val remoteMediaClient = currentSession?.remoteMediaClient ?: return
+        val contentId = activeCastContentId ?: return
+        pendingPositionSync = PendingPositionSync(contentId, anchor)
+        remoteMediaClient.seek(
+            MediaSeekOptions.Builder()
+                .setPosition(anchor.positionAt(System.currentTimeMillis()))
+                .build(),
         )
     }
 
@@ -215,21 +411,41 @@ class CastHandler private constructor(context: Context) {
                 PlaybackCommandType.LOAD_MEDIA -> {
                     val media = command.newValue as? LoadedVideoEvent<*> ?: return@launchUI
                     val newCurrentVideo = buildCurrentVideo(media) ?: return@launchUI
-                    handleOpenVideoCommand(media, newCurrentVideo)
+                    handleOpenVideoCommand(
+                        media = media,
+                        newCurrentVideo = newCurrentVideo,
+                        positionAnchor = PlaybackPositionAnchor(
+                            positionMs = 0L,
+                            capturedAtMs = command.eventTime,
+                            isPlaying = true,
+                            playbackSpeed = 1.0,
+                        ),
+                    )
                 }
 
                 PlaybackCommandType.SYNC_STATE -> {
                     val states = command.newValue as? PlaybackSyncState ?: return@launchUI
                     val newCurrentVideo = buildCurrentVideo(states.media) ?: return@launchUI
-                    handleOpenVideoCommand(states.media, newCurrentVideo)
+                    handleOpenVideoCommand(
+                        media = states.media,
+                        newCurrentVideo = newCurrentVideo,
+                        positionAnchor = PlaybackPositionAnchor(
+                            positionMs = states.positionMs,
+                            capturedAtMs = command.eventTime,
+                            isPlaying = states.playWhenReady,
+                            playbackSpeed = states.playbackSpeed.toDouble(),
+                        ),
+                    )
 
                     playingState.update { states.playWhenReady }
-                    if (!states.playWhenReady)
+                    if (!states.playWhenReady) {
                         remoteMediaClient.pause()
+                    }
                 }
 
                 PlaybackCommandType.PAUSE -> {
                     playingState.update { false }
+                    pendingPositionSync = null
                     remoteMediaClient.pause()
                 }
 
@@ -240,6 +456,7 @@ class CastHandler private constructor(context: Context) {
 
                 PlaybackCommandType.STOP -> {
                     playingState.update { false }
+                    pendingPositionSync = null
                     remoteMediaClient.stop()
                 }
 
@@ -249,11 +466,15 @@ class CastHandler private constructor(context: Context) {
                 }
 
                 PlaybackCommandType.SEEK_TO -> {
-                    val position = (command.newValue as? Number)?.toLong() ?: return@launchUI
-                    MediaSeekOptions.Builder()
-                        .setPosition(position * 1000)
-                        .build()
-                        .let { remoteMediaClient.seek(it) }
+                    val positionMs = (command.newValue as? Number)?.toLong() ?: return@launchUI
+                    seekToAnchor(
+                        PlaybackPositionAnchor(
+                            positionMs = positionMs,
+                            capturedAtMs = command.eventTime,
+                            isPlaying = playingState.value,
+                            playbackSpeed = remoteMediaClient.mediaStatus?.playbackRate ?: 1.0,
+                        ),
+                    )
                 }
 
                 else -> {
@@ -261,7 +482,6 @@ class CastHandler private constructor(context: Context) {
                         "CastHandler/handleCommand",
                         LogPriority.WARN,
                     ) { "Received unhandled playback command: ${command.commandType} with value ${command.newValue}" }
-
                 }
             }
         }
@@ -274,43 +494,107 @@ class CastHandler private constructor(context: Context) {
         subtitle: String = "",
         animeCover: AnimeCover?,
     ) {
-        val session = currentSession ?: return
-        val remoteMediaClient = session.remoteMediaClient ?: return
+        loadVideoAtPosition(
+            originalUrl = originalUrl,
+            headers = headers,
+            title = title,
+            subtitle = subtitle,
+            animeCover = animeCover,
+            positionAnchor = PlaybackPositionAnchor(
+                positionMs = 0L,
+                capturedAtMs = System.currentTimeMillis(),
+                isPlaying = true,
+                playbackSpeed = 1.0,
+            ),
+        )
+    }
 
-        val lowerUrl = originalUrl.lowercase()
-        val mimeType = when {
-            lowerUrl.endsWith(".mkv") -> "video/x-matroska"
-            lowerUrl.endsWith(".webm") -> "video/webm"
-            lowerUrl.endsWith(".m3u8") -> "application/x-mpegURL"
-            else -> "video/mp4"
+    @OptIn(DelicateCoroutinesApi::class)
+    private fun loadVideoAtPosition(
+        originalUrl: String,
+        headers: Map<String, String> = emptyMap(),
+        title: String = "Aniyomi Video",
+        subtitle: String = "",
+        animeCover: AnimeCover?,
+        positionAnchor: PlaybackPositionAnchor,
+    ) {
+        activePositionAnchor = positionAnchor
+        val castSession = currentSession ?: return
+        mediaLoadJob?.cancel()
+        Server.cleanupHls()
+        mediaLoadJob = launchUI {
+            try {
+                val preparedMedia = CastMediaPreparer.prepare(
+                    context = applicationContext,
+                    originalUrl = originalUrl,
+                    headers = headers,
+                    requiredPositionMs = positionAnchor.positionAt(System.currentTimeMillis()),
+                )
+                if (currentSession != castSession) return@launchUI
+                loadPreparedMedia(
+                    session = castSession,
+                    media = preparedMedia,
+                    title = title,
+                    subtitle = subtitle,
+                    animeCover = animeCover,
+                    positionAnchor = activePositionAnchor ?: positionAnchor,
+                )
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                logcat(LogPriority.ERROR, error) { "Could not prepare video for Cast" }
+                applicationContext.toast(error.message ?: "Could not prepare video for Cast", Toast.LENGTH_LONG)
+            }
         }
+    }
 
-        val proxiedUrl = Server.proxiedUrl(applicationContext, originalUrl, headers)
+    private fun loadPreparedMedia(
+        session: CastSession,
+        media: PreparedCastMedia,
+        title: String,
+        subtitle: String,
+        animeCover: AnimeCover?,
+        positionAnchor: PlaybackPositionAnchor,
+    ) {
+        val remoteMediaClient = session.remoteMediaClient ?: return
+        logcat { "Loading prepared Cast media: ${media.url} (${media.contentType})" }
 
         val coverUrl = animeCover?.url?.let { Server.hostImage(applicationContext, it) }
-        logcat { "Got coverUrl: $coverUrl" }
-
         val movieMetadata = MediaMetadata(MediaMetadata.MEDIA_TYPE_MOVIE).apply {
             putString(MediaMetadata.KEY_TITLE, title)
             putString(MediaMetadata.KEY_SUBTITLE, subtitle)
             coverUrl?.let {
-                addImage(WebImage(it.toUri()))        // thumbnail (sender UI)
-                addImage(WebImage(it.toUri()))        // background (TV screen)
+                addImage(WebImage(it.toUri()))
+                addImage(WebImage(it.toUri()))
             }
         }
 
-        val mediaInfo = MediaInfo.Builder(proxiedUrl)
+        val mediaInfo = MediaInfo.Builder(media.url)
             .setStreamType(MediaInfo.STREAM_TYPE_BUFFERED)
-            .setContentType(mimeType)
+            .setContentType(media.contentType)
             .setMetadata(movieMetadata)
             .build()
 
         val requestData = MediaLoadRequestData.Builder()
             .setMediaInfo(mediaInfo)
-            .setAutoplay(true)
+            .setAutoplay(positionAnchor.isPlaying)
+            .setCurrentTime(positionAnchor.positionAt(System.currentTimeMillis()))
+            .setPlaybackRate(positionAnchor.playbackSpeed)
             .build()
 
-        remoteMediaClient.load(requestData)
+        activeCastContentId = media.url
+        pendingPositionSync = PendingPositionSync(media.url, positionAnchor)
+        playingState.update { positionAnchor.isPlaying }
+        remoteMediaClient.load(requestData).setResultCallback { result ->
+            if (!result.status.isSuccess) {
+                val error = result.mediaError
+                logcat(LogPriority.ERROR) {
+                    "Cast load failed: status=${result.status.statusCode} " +
+                        "detailedErrorCode=${error?.detailedErrorCode} reason=${error?.reason} " +
+                        "customData=${error?.customData ?: result.customData}"
+                }
+            }
+        }
     }
 
     fun registerCallback(callback: MediaRouter.Callback) {
@@ -365,6 +649,10 @@ class CastHandler private constructor(context: Context) {
     }
 
     companion object {
+        private const val POSITION_DRIFT_THRESHOLD_MS = 500L
+        private const val REMOTE_SEEK_THRESHOLD_MS = 1_500L
+        private const val PLAYBACK_RATE_CHANGE_THRESHOLD = 0.01
+
         @Volatile
         private var instance: CastHandler? = null
 

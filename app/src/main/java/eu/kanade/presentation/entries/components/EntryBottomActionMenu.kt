@@ -24,7 +24,6 @@ import androidx.compose.foundation.shape.ZeroCornerSize
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Label
 import androidx.compose.material.icons.automirrored.outlined.LabelOff
-import androidx.compose.material.icons.outlined.AddToQueue
 import androidx.compose.material.icons.outlined.BookmarkAdd
 import androidx.compose.material.icons.outlined.BookmarkRemove
 import androidx.compose.material.icons.outlined.Delete
@@ -248,15 +247,6 @@ fun EntryBottomActionMenu(
                         toConfirm = confirm[10],
                         onLongClick = { onLongClickItem(10) },
                         onClick = onInternalClicked,
-                    )
-                }
-                if (!isManga) {
-                    Button(
-                        title = "Add to Queue",
-                        icon = Icons.Outlined.AddToQueue,
-                        toConfirm = false,
-                        onLongClick = { },
-                        onClick = {},
                     )
                 }
             }

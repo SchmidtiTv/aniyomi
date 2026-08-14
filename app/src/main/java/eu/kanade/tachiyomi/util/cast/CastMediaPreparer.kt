@@ -42,8 +42,8 @@ internal object CastMediaPreparer {
         }
         if (!probe.isVideoSafe) {
             throw CastPreparationException(
-                "This video uses ${probe.videoDescription}, which this Cast compatibility mode cannot play. " +
-                    "Video transcoding is not enabled.",
+                failure = CastPreparationFailure.UNSUPPORTED_VIDEO,
+                message = "Unsupported Cast video codec: ${probe.videoDescription}",
             )
         }
 
@@ -110,7 +110,10 @@ internal object CastMediaPreparer {
                         continuation.resume(it.output.ifBlank { capturedOutput.toString() })
                     } else {
                         continuation.resumeWithException(
-                            CastPreparationException("Could not inspect this video for Cast: ${it.output}"),
+                            CastPreparationException(
+                                failure = CastPreparationFailure.INSPECTION_FAILED,
+                                message = "Could not inspect this video for Cast: ${it.output}",
+                            ),
                         )
                     }
                 }
@@ -126,7 +129,10 @@ internal object CastMediaPreparer {
         val video = streams
             .map { it.jsonObject }
             .firstOrNull { it["codec_type"]?.jsonPrimitive?.contentOrNull == "video" }
-            ?: throw CastPreparationException("No video stream was found.")
+            ?: throw CastPreparationException(
+                failure = CastPreparationFailure.NO_VIDEO_STREAM,
+                message = "No video stream was found.",
+            )
         val audio = streams
             .map { it.jsonObject }
             .firstOrNull { it["codec_type"]?.jsonPrimitive?.contentOrNull == "audio" }
@@ -187,4 +193,13 @@ internal data class ProbeResult(
     }
 }
 
-internal class CastPreparationException(message: String) : Exception(message)
+internal enum class CastPreparationFailure {
+    UNSUPPORTED_VIDEO,
+    INSPECTION_FAILED,
+    NO_VIDEO_STREAM,
+}
+
+internal class CastPreparationException(
+    val failure: CastPreparationFailure,
+    message: String,
+) : Exception(message)

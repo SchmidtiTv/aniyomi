@@ -12,6 +12,23 @@
     <string name="cast_to_device">Cast to %s</string>
     <string name="cast_to_tv">Cast to TV</string>
     <string name="cast_to_tv_summary">Connect to a nearby screen</string>
+    <string name="cast_available_devices">Available devices</string>
+    <string name="cast_device_picker_title">Cast to a device</string>
+    <string name="cast_device_picker_summary">Choose a nearby screen to continue watching.</string>
+    <string name="cast_reload_devices">Reload cast devices</string>
+    <string name="cast_no_devices_found">No devices found</string>
+    <string name="cast_no_devices_found_summary">Make sure your device is on the same Wi-Fi network, then refresh.</string>
+    <string name="cast_connecting">Connecting</string>
+    <string name="cast_connected">Connected</string>
+    <string name="cast_disconnected">Disconnected</string>
+    <string name="cast_tap_to_connect">Tap to connect</string>
+    <string name="casting_to_device">Casting to %s</string>
+    <string name="cast_playing_on_tv">Video is playing on your TV</string>
+    <string name="cast_default_video_title">Aniyomi Video</string>
+    <string name="cast_error_prepare_video">Could not prepare this video for Cast.</string>
+    <string name="cast_error_unsupported_video">This video format is not supported for Cast because video transcoding is not enabled.</string>
+    <string name="cast_error_inspect_video">Could not inspect this video for Cast.</string>
+    <string name="cast_error_no_video_stream">No video stream was found.</string>
     <!-- Changed from mihon -->
     <string name="manga">Manga</string>
     <string name="pref_library_summary">Categories, global update, chapter/episode swipe</string>

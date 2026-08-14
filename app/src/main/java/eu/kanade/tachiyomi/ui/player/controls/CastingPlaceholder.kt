@@ -15,6 +15,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import tachiyomi.i18n.aniyomi.AYMR
+import tachiyomi.presentation.core.i18n.stringResource
 
 @Composable
 fun CastingPlaceholder(
@@ -34,13 +36,13 @@ fun CastingPlaceholder(
             tint = Color.White,
         )
         Text(
-            text = "Casting to $deviceName",
+            text = stringResource(AYMR.strings.casting_to_device, deviceName),
             color = Color.White,
             style = MaterialTheme.typography.titleLarge,
             textAlign = TextAlign.Center,
         )
         Text(
-            text = "Video is playing on your TV",
+            text = stringResource(AYMR.strings.cast_playing_on_tv),
             color = Color.White.copy(alpha = 0.7f),
             style = MaterialTheme.typography.bodyMedium,
             textAlign = TextAlign.Center,

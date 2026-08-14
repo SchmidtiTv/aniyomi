@@ -28,9 +28,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import logcat.LogPriority
+import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.core.common.util.lang.launchUI
 import tachiyomi.core.common.util.system.logcat
 import tachiyomi.domain.entries.anime.model.AnimeCover
+import tachiyomi.i18n.aniyomi.AYMR
 import java.util.UUID
 
 class CastHandler private constructor(context: Context) {
@@ -344,7 +346,7 @@ class CastHandler private constructor(context: Context) {
     fun loadVideo(
         originalUrl: String,
         headers: Map<String, String> = emptyMap(),
-        title: String = "Aniyomi Video",
+        title: String? = null,
         subtitle: String = "",
         animeCover: AnimeCover?,
     ) {
@@ -352,7 +354,7 @@ class CastHandler private constructor(context: Context) {
             video = CurrentVideo(
                 videoId = originalUrl,
                 videoUrl = originalUrl,
-                videoTitle = title,
+                videoTitle = title ?: applicationContext.stringResource(AYMR.strings.cast_default_video_title),
                 videoSubTitle = subtitle,
                 animeCover = animeCover,
                 headers = headers,

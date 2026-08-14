@@ -42,7 +42,9 @@ import com.google.android.gms.cast.framework.SessionManagerListener
 import eu.kanade.presentation.player.components.PlayerSheet
 import eu.kanade.tachiyomi.util.cast.CastHandler
 import kotlinx.coroutines.delay
+import tachiyomi.i18n.aniyomi.AYMR
 import tachiyomi.presentation.core.components.material.padding
+import tachiyomi.presentation.core.i18n.stringResource
 
 @Composable
 fun CastSheet(
@@ -150,7 +152,7 @@ fun CastSheet(
                 verticalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small),
             ) {
                 Text(
-                    text = "Available devices",
+                    text = stringResource(AYMR.strings.cast_available_devices),
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -221,12 +223,12 @@ private fun CastSheetHeader(
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             Text(
-                text = "Cast to a device",
+                text = stringResource(AYMR.strings.cast_device_picker_title),
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                text = "Choose a nearby screen to continue watching.",
+                text = stringResource(AYMR.strings.cast_device_picker_summary),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -235,7 +237,7 @@ private fun CastSheetHeader(
         IconButton(onClick = onRefresh) {
             Icon(
                 imageVector = Icons.Default.Refresh,
-                contentDescription = "Reload cast devices",
+                contentDescription = stringResource(AYMR.strings.cast_reload_devices),
                 tint = MaterialTheme.colorScheme.primary,
             )
         }
@@ -270,12 +272,12 @@ private fun EmptyCastDevices(modifier: Modifier = Modifier) {
                 )
             }
             Text(
-                text = "No devices found",
+                text = stringResource(AYMR.strings.cast_no_devices_found),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                text = "Make sure your device is on the same Wi-Fi network, then refresh.",
+                text = stringResource(AYMR.strings.cast_no_devices_found_summary),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
@@ -293,10 +295,14 @@ fun CastEntry(
     modifier: Modifier = Modifier,
 ) {
     val statusText = when {
-        isConnecting -> "Connecting"
-        route.connectionState == MediaRouter.RouteInfo.CONNECTION_STATE_CONNECTING -> "Connecting"
-        route.connectionState == MediaRouter.RouteInfo.CONNECTION_STATE_CONNECTED -> "Connected"
-        else -> "Disconnected"
+        isConnecting -> stringResource(AYMR.strings.cast_connecting)
+        route.connectionState == MediaRouter.RouteInfo.CONNECTION_STATE_CONNECTING -> {
+            stringResource(AYMR.strings.cast_connecting)
+        }
+        route.connectionState == MediaRouter.RouteInfo.CONNECTION_STATE_CONNECTED -> {
+            stringResource(AYMR.strings.cast_connected)
+        }
+        else -> stringResource(AYMR.strings.cast_disconnected)
     }
 
     val statusIcon = when {
@@ -367,7 +373,7 @@ fun CastEntry(
                     },
                 )
                 Text(
-                    text = if (isSelected) statusText else "Tap to connect",
+                    text = if (isSelected) statusText else stringResource(AYMR.strings.cast_tap_to_connect),
                     style = MaterialTheme.typography.bodySmall,
                     color = if (isSelected) {
                         MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f)

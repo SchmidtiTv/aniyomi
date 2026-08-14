@@ -17,8 +17,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import logcat.LogPriority
+import tachiyomi.core.common.i18n.stringResource
 import tachiyomi.core.common.util.lang.launchUI
 import tachiyomi.core.common.util.system.logcat
+import tachiyomi.i18n.aniyomi.AYMR
 
 internal class CastMediaLoader(
     private val context: Context,
@@ -66,7 +68,22 @@ internal class CastMediaLoader(
                 throw error
             } catch (error: Exception) {
                 logcat(LogPriority.ERROR, error) { "Could not prepare video for Cast" }
-                context.toast(error.message ?: "Could not prepare video for Cast", Toast.LENGTH_LONG)
+                val message = when ((error as? CastPreparationException)?.failure) {
+                    CastPreparationFailure.UNSUPPORTED_VIDEO -> {
+                        context.stringResource(AYMR.strings.cast_error_unsupported_video)
+                    }
+
+                    CastPreparationFailure.INSPECTION_FAILED -> {
+                        context.stringResource(AYMR.strings.cast_error_inspect_video)
+                    }
+
+                    CastPreparationFailure.NO_VIDEO_STREAM -> {
+                        context.stringResource(AYMR.strings.cast_error_no_video_stream)
+                    }
+
+                    null -> context.stringResource(AYMR.strings.cast_error_prepare_video)
+                }
+                context.toast(message, Toast.LENGTH_LONG)
             }
         }
     }

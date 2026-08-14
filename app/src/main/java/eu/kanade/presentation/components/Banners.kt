@@ -18,6 +18,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,6 +35,7 @@ import androidx.compose.ui.util.fastMaxBy
 import dev.icerock.moko.resources.StringResource
 import eu.kanade.tachiyomi.util.cast.CastHandler
 import tachiyomi.i18n.MR
+import tachiyomi.i18n.aniyomi.AYMR
 import tachiyomi.presentation.core.i18n.stringResource
 
 val DownloadedOnlyBannerBackgroundColor
@@ -73,6 +75,8 @@ fun AppStateBanners(
     val density = LocalDensity.current
     val mainInsets = WindowInsets.statusBars
     val mainInsetsTop = mainInsets.getTop(density)
+    val castHandler = CastHandler.getInstance(LocalContext.current)
+    val isCasting by castHandler.connectionState.collectAsState()
     SubcomposeLayout(modifier = modifier) { constraints ->
         val indexingPlaceable = subcompose(0) {
             AnimatedVisibility(
@@ -117,7 +121,7 @@ fun AppStateBanners(
 
         val castPlaceable = subcompose(3) {
             AnimatedVisibility(
-                visible = true, // CastHandler.getInstance(LocalContext.current).isConnected(),
+                visible = isCasting,
                 enter = expandVertically(),
                 exit = shrinkVertically(),
             ) {
@@ -168,7 +172,7 @@ private fun CastingBanner(modifier: Modifier = Modifier) {
     val currentRoute = castHandler.getCurrentRoute()
 
     Text(
-        text = "Cast to ${currentRoute.name}",
+        text = stringResource(AYMR.strings.cast_to_device, currentRoute.name),
         modifier = Modifier
             .background(CastingBannerBackgroundColor)
             .fillMaxWidth()

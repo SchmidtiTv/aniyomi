@@ -9,6 +9,9 @@
     <string name="relative_time_now">Now</string>
     <string name="action_stop">Stop</string>
     <string name="action_continue">Continue</string>
+    <string name="cast_to_device">Cast to %s</string>
+    <string name="cast_to_tv">Cast to TV</string>
+    <string name="cast_to_tv_summary">Connect to a nearby screen</string>
     <!-- Changed from mihon -->
     <string name="manga">Manga</string>
     <string name="pref_library_summary">Categories, global update, chapter/episode swipe</string>

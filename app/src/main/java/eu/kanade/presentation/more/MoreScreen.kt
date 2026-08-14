@@ -79,8 +79,8 @@ fun MoreScreen(
             }
             item {
                 TextPreferenceWidget(
-                    title = "Cast to Tv",
-                    subtitle = "Cast to Tv",
+                    title = stringResource(AYMR.strings.cast_to_tv),
+                    subtitle = stringResource(AYMR.strings.cast_to_tv_summary),
                     icon = Icons.Outlined.Cast,
                     onPreferenceClick = onClickCast,
                 )

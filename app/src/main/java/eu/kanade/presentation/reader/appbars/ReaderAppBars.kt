@@ -65,6 +65,7 @@ fun ReaderAppBars(
     cropEnabled: Boolean,
     onClickCropBorder: () -> Unit,
     onClickSettings: () -> Unit,
+    playingBar: (@Composable () -> Unit)? = null,
 ) {
     val isRtl = viewer is R2LPagerViewer
     val backgroundColor = MaterialTheme.colorScheme
@@ -168,6 +169,7 @@ fun ReaderAppBars(
                 modifier = modifierWithInsetsPadding,
                 verticalArrangement = Arrangement.spacedBy(MaterialTheme.padding.small),
             ) {
+                playingBar?.invoke()
                 ChapterNavigator(
                     isRtl = isRtl,
                     onNextChapter = onNextChapter,

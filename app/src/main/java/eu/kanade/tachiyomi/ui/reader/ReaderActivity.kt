@@ -22,6 +22,7 @@ import android.widget.Toast
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
@@ -29,6 +30,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.content.getSystemService
 import androidx.core.graphics.ColorUtils
@@ -61,7 +63,14 @@ import eu.kanade.tachiyomi.data.notification.Notifications
 import eu.kanade.tachiyomi.databinding.ReaderActivityBinding
 import eu.kanade.tachiyomi.source.online.HttpSource
 import eu.kanade.tachiyomi.ui.base.activity.BaseActivity
+import eu.kanade.tachiyomi.ui.home.PlayingBar
 import eu.kanade.tachiyomi.ui.main.MainActivity
+import eu.kanade.tachiyomi.ui.player.PlayerActivity
+import eu.kanade.tachiyomi.ui.player.sync.PlaybackCommand
+import eu.kanade.tachiyomi.ui.player.sync.PlaybackCommandType
+import eu.kanade.tachiyomi.ui.player.sync.PlaybackSyncCoordinator
+import eu.kanade.tachiyomi.ui.player.sync.PlayingManager
+import eu.kanade.tachiyomi.ui.player.sync.SyncOrigin
 import eu.kanade.tachiyomi.ui.reader.ReaderViewModel.SetAsCoverResult.AddToLibraryFirst
 import eu.kanade.tachiyomi.ui.reader.ReaderViewModel.SetAsCoverResult.Error
 import eu.kanade.tachiyomi.ui.reader.ReaderViewModel.SetAsCoverResult.Success
@@ -74,6 +83,7 @@ import eu.kanade.tachiyomi.ui.reader.setting.ReaderSettingsScreenModel
 import eu.kanade.tachiyomi.ui.reader.setting.ReadingMode
 import eu.kanade.tachiyomi.ui.reader.viewer.ReaderProgressIndicator
 import eu.kanade.tachiyomi.ui.webview.WebViewActivity
+import eu.kanade.tachiyomi.util.cast.CastHandler
 import eu.kanade.tachiyomi.util.system.hasDisplayCutout
 import eu.kanade.tachiyomi.util.system.isNightMode
 import eu.kanade.tachiyomi.util.system.openInBrowser
@@ -100,6 +110,7 @@ import tachiyomi.presentation.core.util.collectAsState
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import java.io.ByteArrayOutputStream
+import java.util.UUID
 
 class ReaderActivity : BaseActivity() {
 
@@ -351,6 +362,11 @@ class ReaderActivity : BaseActivity() {
 
         binding.dialogRoot.setComposeContent {
             val state by viewModel.state.collectAsState()
+            val castHandler = remember { CastHandler.getInstance(this@ReaderActivity) }
+            val castIsConnected by castHandler.connectionState.collectAsState()
+            val playingManager = remember { PlayingManager.getInstance() }
+            val activePlayback by playingManager.activePlayback.collectAsState()
+            val playbackCoordinator = remember { PlaybackSyncCoordinator.getInstance() }
             val settingsScreenModel = remember {
                 ReaderSettingsScreenModel(
                     readerState = viewModel.state,
@@ -428,6 +444,44 @@ class ReaderActivity : BaseActivity() {
                     menuToggleToast = toast(if (enabled) MR.strings.on else MR.strings.off)
                 },
                 onClickSettings = viewModel::openSettingsDialog,
+                playingBar = activePlayback?.takeIf { castIsConnected }?.let { playback ->
+                    {
+                        PlayingBar(
+                            playback = playback,
+                            deviceName = castHandler.getCurrentRoute().name,
+                            onPlayPause = {
+                                playbackCoordinator.addEvent(
+                                    PlaybackCommand(
+                                        commandId = UUID.randomUUID().toString(),
+                                        eventTime = System.currentTimeMillis(),
+                                        commandType = if (playback.isPlaying) {
+                                            PlaybackCommandType.PAUSE
+                                        } else {
+                                            PlaybackCommandType.PLAY
+                                        },
+                                        newValue = null,
+                                        origin = SyncOrigin.SYSTEM,
+                                    ),
+                                )
+                            },
+                            onClose = castHandler::disconnect,
+                            onClick = {
+                                val animeId = playback.media.anime?.id
+                                val episodeId = playback.media.episode?.id
+                                if (animeId != null && episodeId != null) {
+                                    startActivity(
+                                        PlayerActivity.newIntent(
+                                            context = this@ReaderActivity,
+                                            animeId = animeId,
+                                            episodeId = episodeId,
+                                        ),
+                                    )
+                                }
+                            },
+                            modifier = Modifier.padding(horizontal = 5.dp),
+                        )
+                    }
+                },
             )
 
             if (flashOnPageChange) {

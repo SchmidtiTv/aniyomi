@@ -6,7 +6,6 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,25 +14,24 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBarDefaults
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -56,6 +54,12 @@ import eu.kanade.tachiyomi.ui.history.HistoriesTab
 import eu.kanade.tachiyomi.ui.library.anime.AnimeLibraryTab
 import eu.kanade.tachiyomi.ui.library.manga.MangaLibraryTab
 import eu.kanade.tachiyomi.ui.more.MoreTab
+import eu.kanade.tachiyomi.ui.player.PlayerActivity
+import eu.kanade.tachiyomi.ui.player.sync.PlaybackCommand
+import eu.kanade.tachiyomi.ui.player.sync.PlaybackCommandType
+import eu.kanade.tachiyomi.ui.player.sync.PlaybackSyncCoordinator
+import eu.kanade.tachiyomi.ui.player.sync.PlayingManager
+import eu.kanade.tachiyomi.ui.player.sync.SyncOrigin
 import eu.kanade.tachiyomi.ui.updates.UpdatesTab
 import eu.kanade.tachiyomi.util.cast.CastHandler
 import kotlinx.coroutines.channels.Channel
@@ -71,11 +75,11 @@ import tachiyomi.presentation.core.components.material.NavigationBar
 import tachiyomi.presentation.core.components.material.NavigationRail
 import tachiyomi.presentation.core.components.material.Scaffold
 import tachiyomi.presentation.core.i18n.pluralStringResource
-import tachiyomi.presentation.core.i18n.stringResource
 import tachiyomi.presentation.core.util.collectAsState
 import uy.kohesive.injekt.Injekt
 import uy.kohesive.injekt.api.get
 import uy.kohesive.injekt.injectLazy
+import java.util.UUID
 
 object HomeScreen : Screen() {
 
@@ -94,7 +98,10 @@ object HomeScreen : Screen() {
     override fun Content() {
         val context = LocalContext.current
         val castHandler = CastHandler.getInstance(context = context)
-        val castIsConnected = castHandler.isConnected()
+        val castIsConnected by castHandler.connectionState.collectAsState()
+        val playingManager = remember { PlayingManager.getInstance() }
+        val activePlayback by playingManager.activePlayback.collectAsState()
+        val playbackCoordinator = remember { PlaybackSyncCoordinator.getInstance() }
 
         val navStyle by uiPreferences.navStyle().collectAsState()
         val navigator = LocalNavigator.currentOrThrow
@@ -121,21 +128,42 @@ object HomeScreen : Screen() {
                             verticalArrangement = Arrangement.spacedBy(5.dp, Alignment.CenterVertically),
                         ) {
                             AnimatedVisibility(
-                                visible = castIsConnected,
+                                visible = castIsConnected && activePlayback != null,
                             ) {
-                                Column(
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    modifier = Modifier
-                                        .padding(horizontal = 5.dp)
-                                        .clip(RoundedCornerShape(10.dp))
-                                        .background(NavigationBarDefaults.containerColor)
-                                        .fillMaxWidth()
-                                        .padding(vertical = 8.dp),
-                                ) {
-                                    Text(
-                                        text = stringResource(MR.strings.app_name),
-                                        style = MaterialTheme.typography.labelMedium,
-                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                                activePlayback?.let { playback ->
+                                    PlayingBar(
+                                        playback = playback,
+                                        deviceName = castHandler.getCurrentRoute().name,
+                                        onPlayPause = {
+                                            playbackCoordinator.addEvent(
+                                                PlaybackCommand(
+                                                    commandId = UUID.randomUUID().toString(),
+                                                    eventTime = System.currentTimeMillis(),
+                                                    commandType = if (playback.isPlaying) {
+                                                        PlaybackCommandType.PAUSE
+                                                    } else {
+                                                        PlaybackCommandType.PLAY
+                                                    },
+                                                    newValue = null,
+                                                    origin = SyncOrigin.SYSTEM,
+                                                ),
+                                            )
+                                        },
+                                        onClose = castHandler::disconnect,
+                                        onClick = {
+                                            val animeId = playback.media.anime?.id
+                                            val episodeId = playback.media.episode?.id
+                                            if (animeId != null && episodeId != null) {
+                                                context.startActivity(
+                                                    PlayerActivity.newIntent(
+                                                        context = context,
+                                                        animeId = animeId,
+                                                        episodeId = episodeId,
+                                                    ),
+                                                )
+                                            }
+                                        },
+                                        modifier = Modifier.padding(horizontal = 5.dp),
                                     )
                                 }
                             }
